@@ -6,9 +6,10 @@ scipy>=1.7.0
 # Deep learning
 torch>=1.13.1
 torch-geometric>=2.3.0
-torch-scatter>=2.1.1
-torch-sparse>=0.6.17
-torch-cluster>=1.6.1
+# Install these manually with: pip install <package> --no-build-isolation
+# torch-scatter>=2.1.1
+# torch-sparse>=0.6.17
+# torch-cluster>=1.6.1
 
 # Network analysis
 networkx>=2.6.0
