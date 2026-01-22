@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 
 
-def load_data(year, quarter, data_path="../../interbank/datasets"):
+def load_data(year, quarter, data_path="../datasets"):
     """
     Load edge and node data for one quarter.
     
@@ -114,9 +114,6 @@ def get_bank_labels(nodes):
     """
     Extract just the bank IDs and their credit ratings.
     
-    This is useful when you only need to know which banks have which ratings,
-    without all the other 70+ features.
-    
     Credit ratings (rank_next_quarter):
     - 1: A rating (Best - lowest risk)
     - 2: B rating (Good)
@@ -135,7 +132,7 @@ def get_bank_labels(nodes):
     Example:
         edges, nodes = load_data(2023, 1)
         labels = get_bank_labels(nodes)
-        print(labels.head())  # Show first 5 banks and their ratings
+        print(labels.head())
         
         # Count how many banks have each rating
         print(labels['rating'].value_counts())
@@ -199,24 +196,3 @@ if __name__ == "__main__":
     
     print("\n--- Rating distribution ---")
     print(labels['rating'].value_counts())
-
-
-# Example usage
-if __name__ == "__main__":
-    # Load one quarter
-    edges, features = load_data(2023, 1)
-    
-    print("\n--- Edge data (first 5 rows) ---")
-    print(edges.head())
-    
-    print("\n--- Feature data (first 5 rows) ---")
-    print(features.head())
-    
-    print("\n--- Network info ---")
-    info = get_network_info(edges, features)
-    for key, val in info.items():
-        print(f"{key}: {val}")
-    
-    print("\n--- Bank labels (first 10) ---")
-    labels = get_bank_labels(features)
-    print(labels.head(10))
