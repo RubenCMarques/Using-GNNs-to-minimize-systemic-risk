@@ -57,7 +57,7 @@ def test_load_single_quarter():
         return False
         
     except Exception as e:
-        print(f" FAILED: {e}")
+        print(f"FAILED: {e}")
         return False
 
 
@@ -87,7 +87,7 @@ def test_network_info():
         return True
         
     except Exception as e:
-        print(f"❌ FAILED: {e}")
+        print(f"FAILED: {e}")
         return False
 
 

@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 
 
-def load_data(year, quarter, data_path="../datasets"):
+def load_data(year, quarter, data_path="../../datasets"):
     """
     Load edge and node data for one quarter.
     
@@ -53,8 +53,9 @@ def load_data(year, quarter, data_path="../datasets"):
     # Build the full file paths for this specific quarter
     # File naming: edges/edge_YYYYQX.csv and nodes/YYYYQX.csv
     edge_file = os.path.join(data_path, "edges", f"edge_{year}Q{quarter}.csv")
+    print(edge_file)
     node_file = os.path.join(data_path, "nodes", f"{year}Q{quarter}.csv")
-    
+    print(node_file)
     # Load the CSV files into pandas DataFrames
     # edges: who lends to whom and how much (Sourceid -> Targetid with Weights)
     # nodes: characteristics of each bank (index + 70 features + rating + SRISK)
