@@ -1,5 +1,3 @@
-"""Models for network analysis and contagion simulation."""
-
 """Models for contagion simulation and classical algorithms."""
 
 from .contagion import simulate_failure, compute_systemic_importance
@@ -9,7 +7,8 @@ from .classical_algorithms import (
     closeness_centrality,
     eigenvector_centrality,
     weighted_degree,
-    debtrank
+    debtrank,
+    pagerank_centrality
 )
 from .gnn import (
     GNNConfig,
@@ -29,6 +28,7 @@ __all__ = [
     'eigenvector_centrality',
     'weighted_degree',
     'debtrank',
+    'pagerank_centrality',
     'GNNConfig',
     'FlexibleGNN',
     'prepare_graph_data',
