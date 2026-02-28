@@ -25,12 +25,21 @@ def test_simulate_failure():
     # Pick first bank
     bank_id = nodes['index'].iloc[10]
     
-    result = simulate_failure(bank_id, edges, nodes, mechanism="Exposure")
+    result = simulate_failure(
+        bank_id,
+        edges,
+        nodes,
+        mechanism="Exposure",
+        initial_loss_mode="fixed",
+        initial_loss_frac=1.0,
+    )
     
     assert 'failed_banks' in result
     assert 'total_loss' in result
     assert 'num_failed' in result
     assert 'rounds' in result
+    assert 'initial_shock_fraction' in result
+    assert 'initial_default' in result
     assert bank_id in result['failed_banks']
     assert result['num_failed'] >= 1
     
@@ -52,6 +61,36 @@ def test_compute_systemic_importance():
     
     systemic_count = df['is_systemically_important'].sum()
     print(f"{systemic_count}/{len(df)} banks labeled as systemically important")
+
+
+def test_spread_toggle_without_initial_default():
+    """Test propagation toggle when the initial shock does not trigger default."""
+    edges, nodes = load_data(2023, 1)
+    bank_id = nodes['index'].iloc[10]
+
+    no_spread = simulate_failure(
+        bank_id,
+        edges,
+        nodes,
+        mechanism="Exposure",
+        spread_without_default=False,
+        initial_loss_mode="fixed",
+        initial_loss_frac=0.2,
+    )
+    spread = simulate_failure(
+        bank_id,
+        edges,
+        nodes,
+        mechanism="Exposure",
+        spread_without_default=True,
+        initial_loss_mode="fixed",
+        initial_loss_frac=0.2,
+    )
+
+    assert no_spread["initial_default"] is False
+    assert no_spread["rounds"] == 0
+    assert no_spread["num_failed"] == 0
+    assert spread["rounds"] >= 1
 
 
 if __name__ == "__main__":

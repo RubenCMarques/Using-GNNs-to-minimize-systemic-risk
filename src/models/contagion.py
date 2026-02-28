@@ -3,15 +3,35 @@ import numpy as np
 import pandas as pd
 
 
-def simulate_failure(initial_bank, edges, nodes, mechanism="Exposure", alpha=1.0):
+def simulate_failure(
+    initial_bank,
+    edges,
+    nodes,
+    mechanism="Exposure",
+    alpha=1.0,
+    spread_without_default=True,
+    initial_loss_mode="random",
+    initial_loss_frac=1.0,
+    initial_loss_min=0.05,
+    initial_loss_max=0.60,
+    random_state=None,
+):
     """
-    Simulate cascade when one bank fails.
+    Simulate cascade after an initial shock on one bank.
     
     Args:
-        initial_bank: ID of bank that fails first
+        initial_bank: ID of bank that is shocked first
         edges: DataFrame [Sourceid, Targetid, Weights]
         nodes: DataFrame with 'index' and 'Equity' columns
         mechanism: "Exposure" or "liquidity"
+        alpha: Loss amplification factor
+        spread_without_default: If True, contagion starts even when initial
+            bank does not default after the initial shock
+        initial_loss_mode: "random" or "fixed"
+        initial_loss_frac: Initial equity-loss fraction when mode is "fixed"
+        initial_loss_min: Lower bound for random initial equity-loss fraction
+        initial_loss_max: Upper bound for random initial equity-loss fraction
+        random_state: Optional random seed for reproducibility
         
     Returns:
         dict: failed_banks, total_loss, num_failed, rounds
@@ -19,9 +39,30 @@ def simulate_failure(initial_bank, edges, nodes, mechanism="Exposure", alpha=1.0
     equity = nodes.set_index('index')['Equity'].to_dict()
     remaining = equity.copy()
 
-    failed = set([initial_bank])
-    newly_failed = {initial_bank}
+    if initial_loss_mode not in {"random", "fixed"}:
+        raise ValueError("initial_loss_mode must be 'random' or 'fixed'")
+
+    if initial_loss_mode == "fixed":
+        shock_fraction = float(initial_loss_frac)
+    else:
+        if initial_loss_min > initial_loss_max:
+            raise ValueError("initial_loss_min must be <= initial_loss_max")
+        rng = np.random.default_rng(random_state)
+        shock_fraction = float(rng.uniform(initial_loss_min, initial_loss_max))
+
+    if shock_fraction < 0:
+        raise ValueError("Initial loss fraction must be >= 0")
+
+    # Apply initial equity shock to the selected bank.
+    remaining[initial_bank] -= shock_fraction * equity[initial_bank]
+
+    initial_default = remaining[initial_bank] <= 0
+    failed = set([initial_bank]) if initial_default else set()
+    newly_failed = {initial_bank} if spread_without_default or initial_default else set()
     rounds = 0
+
+    # round 0 = initial shock caused the default (before cascade begins)
+    fail_round = {initial_bank: 0} if initial_default else {}
 
     while newly_failed:
         rounds += 1
@@ -48,13 +89,20 @@ def simulate_failure(initial_bank, edges, nodes, mechanism="Exposure", alpha=1.0
                 if remaining[other] <= 0:
                     next_failed.add(other)
 
+        for b in next_failed:
+            fail_round[b] = rounds
+
         failed.update(next_failed)
         newly_failed = next_failed
 
     total_loss = sum(equity[b] for b in failed)
 
     return {
+        "initial_shock_fraction": shock_fraction,
+        "initial_default": initial_default,
         "failed_banks": failed,
+        "fail_round": fail_round,
+        "remaining_equity": remaining,
         "total_loss": total_loss,
         "num_failed": len(failed),
         "rounds": rounds,

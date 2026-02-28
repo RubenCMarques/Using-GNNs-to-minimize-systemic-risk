@@ -30,10 +30,14 @@ def test_degree_centrality():
     
     assert len(df) == len(nodes)
     assert 'bank_id' in df.columns
-    assert 'degree_centrality' in df.columns
-    assert df['degree_centrality'].between(0, 1).all()
+    assert 'degree_centrality_in' in df.columns
+    assert 'degree_centrality_out' in df.columns
+    assert 'degree_centrality_total' in df.columns
+    assert df['degree_centrality_in'].between(0, 1).all()
+    assert df['degree_centrality_out'].between(0, 1).all()
+    assert df['degree_centrality_total'].between(0, 2).all()
     
-    print(f"Degree centrality: max={df['degree_centrality'].max():.3f}")
+    print(f"Degree centrality total: max={df['degree_centrality_total'].max():.3f}")
 
 
 def test_betweenness_centrality():
