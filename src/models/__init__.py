@@ -1,6 +1,10 @@
 """Models for contagion simulation and classical algorithms."""
 
-from .contagion import simulate_failure, compute_systemic_importance
+from .contagion import (
+    simulate_failure,
+    simulate_partial_distress,
+    compute_systemic_importance,
+)
 from .classical_algorithms import (
     degree_centrality,
     betweenness_centrality,
@@ -21,6 +25,7 @@ from .gnn import (
 
 __all__ = [
     'simulate_failure',
+    'simulate_partial_distress',
     'compute_systemic_importance',
     'degree_centrality',
     'betweenness_centrality',
