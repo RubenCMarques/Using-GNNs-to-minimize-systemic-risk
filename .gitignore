@@ -52,7 +52,6 @@ datasets/
 *.pth
 *.pt
 *.ckpt
-models/
 checkpoints/
 
 # Logs

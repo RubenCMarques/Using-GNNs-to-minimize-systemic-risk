@@ -15,10 +15,11 @@ def simulate_failure(
     initial_loss_min=0.05,
     initial_loss_max=0.60,
     random_state=None,
+    track_rounds=False,
 ):
     """
     Simulate cascade after an initial shock on one bank.
-    
+
     Args:
         initial_bank: ID of bank that is shocked first
         edges: DataFrame [Sourceid, Targetid, Weights]
@@ -32,9 +33,15 @@ def simulate_failure(
         initial_loss_min: Lower bound for random initial equity-loss fraction
         initial_loss_max: Upper bound for random initial equity-loss fraction
         random_state: Optional random seed for reproducibility
-        
+        track_rounds: If True, include round_summaries in the returned dict
+
     Returns:
-        dict: failed_banks, total_loss, num_failed, rounds
+        dict: failed_banks, total_loss, num_failed, rounds, remaining_equity,
+              fail_round, initial_shock_fraction, initial_default.
+              If track_rounds=True, also includes round_summaries (list of dicts,
+              one per cascade round with keys: round, new_failures_count,
+              cum_failures_count, round_equity_depletion, cum_equity_depletion,
+              num_active_spreaders).
     """
     equity = nodes.set_index('index')['Equity'].to_dict()
     remaining = equity.copy()
@@ -64,9 +71,14 @@ def simulate_failure(
     # round 0 = initial shock caused the default (before cascade begins)
     fail_round = {initial_bank: 0} if initial_default else {}
 
+    round_summaries = [] if track_rounds else None
+    cum_eq_depletion = 0.0
+
     while newly_failed:
         rounds += 1
         next_failed = set()
+        num_spreaders = len(newly_failed)
+        round_eq_depletion = 0.0
 
         for bank in newly_failed:
             if mechanism == "Exposure":
@@ -86,6 +98,9 @@ def simulate_failure(
                 loss = alpha * row['Weights']
                 remaining[other] -= loss
 
+                if track_rounds:
+                    round_eq_depletion += loss
+
                 if remaining[other] <= 0:
                     next_failed.add(other)
 
@@ -95,9 +110,20 @@ def simulate_failure(
         failed.update(next_failed)
         newly_failed = next_failed
 
+        if track_rounds:
+            cum_eq_depletion += round_eq_depletion
+            round_summaries.append({
+                "round": rounds,
+                "new_failures_count": len(next_failed),
+                "cum_failures_count": len(failed),
+                "round_equity_depletion": round_eq_depletion,
+                "cum_equity_depletion": cum_eq_depletion,
+                "num_active_spreaders": num_spreaders,
+            })
+
     total_loss = sum(equity[b] for b in failed)
 
-    return {
+    result = {
         "initial_shock_fraction": shock_fraction,
         "initial_default": initial_default,
         "failed_banks": failed,
@@ -107,6 +133,9 @@ def simulate_failure(
         "num_failed": len(failed),
         "rounds": rounds,
     }
+    if track_rounds:
+        result["round_summaries"] = round_summaries
+    return result
 
 
 
