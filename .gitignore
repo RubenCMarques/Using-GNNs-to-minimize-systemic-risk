@@ -23,6 +23,7 @@ interbank-0.1.0/
 sim_bank_state/
 sim_round_summary/
 sim_runs/
+interbank-main/
 
 # Virtual Environment
 venv/
