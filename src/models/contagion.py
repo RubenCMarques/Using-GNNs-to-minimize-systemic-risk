@@ -1,6 +1,17 @@
 
+import time
+import uuid
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+
+from src.data.data_loader import load_data
+from src.data.simulation_store import (
+    build_bank_rows,
+    build_round_rows,
+    build_run_row,
+)
 
 
 def simulate_failure(
@@ -231,37 +242,272 @@ def simulate_partial_distress(initial_bank, edges, nodes,
 
 def compute_systemic_importance(edges, nodes, mechanism="Exposure"):
     """
-    For each bank: what happens if it fails?
-    
-    Args:
-        edges: DataFrame [Sourceid, Targetid, Weights]
-        nodes: DataFrame with 'index' and 'Equity'
-        mechanism: "Exposure" or "Liquidity"
-        
-    Returns:
-        DataFrame:
-            - bank_id
-            - total_loss
-            - num_failed
-            - is_systemically_important (1 if above median, else 0) ------> To be discussed (In the END)
+    Compatibility wrapper around the default-only systemic importance workflow.
+
+    Returns the legacy compact output while delegating the simulations to the
+    newer batch pipeline.
     """
-    results = []
-    
-    for bank_id in nodes['index']:
-        result = simulate_failure(bank_id, edges, nodes, mechanism)
-        results.append({
-            'bank_id': bank_id,
-            'total_loss': result['total_loss'],
-            'num_failed': result['num_failed']
-        })
-    
-    df = pd.DataFrame(results)
-    
-    # Label: systemic if above median loss
-    # df['is_systemically_important'] = (df['total_loss'] > df['total_loss'].median()).astype(int)
-    df['is_systemically_important'] = (df['total_loss'] > df['total_loss'].quantile(0.8)).astype(int)
-    
-    return df
+    outputs = run_default_contagion_analysis(
+        edges=edges,
+        nodes=nodes,
+        year=-1,
+        quarter=-1,
+        mechanism=mechanism,
+        alpha=1.0,
+        importance_quantile=0.80,
+        track_rounds=False,
+        output_dir=None,
+    )
+    importance_df = outputs["importance"]
+    return importance_df.rename(
+        columns={
+            "cascade_size": "num_failed",
+            "failed_equity_loss": "total_loss",
+        }
+    )[
+        ["bank_id", "total_loss", "num_failed", "is_systemically_important"]
+    ]
+
+
+def build_systemic_importance_summary(
+    run_df,
+    nodes,
+    importance_quantile=0.80,
+):
+    """
+    Rank banks by the damage caused by their own default-contagion simulation.
+
+    Args:
+        run_df: DataFrame generated from one run per initial bank.
+        nodes: DataFrame with at least 'index' and optionally 'Assets'.
+        importance_quantile: Quantile cutoff used to label systemic banks.
+
+    Returns:
+        DataFrame with one row per initial bank and ranking metrics.
+    """
+    summary = run_df.copy()
+    summary = summary.rename(
+        columns={
+            "initial_bank": "bank_id",
+            "num_failed": "cascade_size",
+        }
+    )
+
+    summary["secondary_defaults"] = (summary["cascade_size"] - 1).clip(lower=0)
+    summary["causes_cascade"] = (summary["secondary_defaults"] > 0).astype(int)
+
+    if "Assets" in nodes.columns:
+        bank_assets = nodes.set_index("index")["Assets"].to_dict()
+        total_assets = float(nodes["Assets"].sum())
+        summary["initial_bank_assets"] = summary["bank_id"].map(bank_assets).fillna(0.0)
+        summary["affected_assets"] = summary["impacted_share"] * total_assets
+        summary["affected_assets_share"] = (
+            summary["affected_assets"] / total_assets if total_assets > 0 else 0.0
+        )
+    else:
+        summary["initial_bank_assets"] = np.nan
+        summary["affected_assets"] = np.nan
+        summary["affected_assets_share"] = np.nan
+
+    summary["cascade_rank"] = summary["cascade_size"].rank(
+        method="dense", ascending=False
+    ).astype(int)
+    summary["loss_rank"] = summary["system_equity_depletion"].rank(
+        method="dense", ascending=False
+    ).astype(int)
+    summary["composite_score"] = (
+        summary["failed_share"]
+        + summary["impacted_share"]
+        + (
+            summary["system_equity_depletion"]
+            / max(float(nodes["Equity"].sum()), 1e-8)
+        )
+    )
+    summary["composite_rank"] = summary["composite_score"].rank(
+        method="dense", ascending=False
+    ).astype(int)
+
+    cutoff = summary["composite_score"].quantile(importance_quantile)
+    summary["is_systemically_important"] = (
+        summary["composite_score"] >= cutoff
+    ).astype(int)
+
+    ordered_cols = [
+        "dataset_id",
+        "year",
+        "quarter",
+        "bank_id",
+        "initial_default",
+        "cascade_size",
+        "secondary_defaults",
+        "causes_cascade",
+        "rounds",
+        "num_impacted",
+        "failed_share",
+        "impacted_share",
+        "failed_equity_loss",
+        "system_equity_depletion",
+        "avg_loss_per_impacted",
+        "max_bank_loss",
+        "max_loss_bank_id",
+        "initial_bank_assets",
+        "affected_assets",
+        "affected_assets_share",
+        "cascade_rank",
+        "loss_rank",
+        "composite_score",
+        "composite_rank",
+        "is_systemically_important",
+        "run_id",
+    ]
+    return summary[ordered_cols].sort_values(
+        ["composite_rank", "loss_rank", "bank_id"]
+    ).reset_index(drop=True)
+
+
+def run_default_contagion_analysis(
+    edges,
+    nodes,
+    *,
+    year,
+    quarter,
+    mechanism="Exposure",
+    alpha=1.0,
+    importance_quantile=0.80,
+    track_rounds=True,
+    output_dir=None,
+):
+    """
+    Run one default-contagion simulation per bank and optionally write parquet tables.
+
+    Option 1 semantics:
+    - each bank is defaulted one at a time,
+    - contagion starts only from actual default,
+    - outputs contain the essential ranking metrics for systemic importance.
+    """
+    equity_initial = {
+        bank_id: float(value)
+        for bank_id, value in nodes.set_index("index")["Equity"].items()
+    }
+    n_banks = len(nodes)
+    n_edges = len(edges)
+
+    run_rows = []
+    bank_rows = []
+    round_rows = []
+
+    for bank_id in nodes["index"]:
+        run_id = str(uuid.uuid4())
+        t0 = time.perf_counter()
+        result = simulate_failure(
+            initial_bank=bank_id,
+            edges=edges,
+            nodes=nodes,
+            mechanism=mechanism,
+            alpha=alpha,
+            spread_without_default=False,
+            initial_loss_mode="fixed",
+            initial_loss_frac=1.0,
+            track_rounds=track_rounds,
+        )
+        runtime_ms = (time.perf_counter() - t0) * 1_000
+
+        run_rows.append(
+            build_run_row(
+                run_id=run_id,
+                result=result,
+                equity_initial=equity_initial,
+                n_banks=n_banks,
+                n_edges=n_edges,
+                initial_bank=bank_id,
+                mechanism=mechanism,
+                alpha=alpha,
+                spread_without_default=False,
+                initial_loss_mode="fixed",
+                year=year,
+                quarter=quarter,
+                runtime_ms=runtime_ms,
+            )
+        )
+        bank_rows.extend(
+            build_bank_rows(
+                run_id=run_id,
+                result=result,
+                equity_initial=equity_initial,
+                initial_bank=bank_id,
+            )
+        )
+        round_rows.extend(build_round_rows(run_id=run_id, result=result))
+
+    runs_df = pd.DataFrame(run_rows)
+    bank_state_df = pd.DataFrame(bank_rows)
+    round_summary_df = pd.DataFrame(round_rows)
+    importance_df = build_systemic_importance_summary(
+        runs_df,
+        nodes,
+        importance_quantile=importance_quantile,
+    )
+
+    outputs = {
+        "runs": runs_df,
+        "bank_state": bank_state_df,
+        "round_summary": round_summary_df,
+        "importance": importance_df,
+    }
+
+    if output_dir is not None:
+        output_path = Path(output_dir)
+        table_dirs = {
+            "runs": output_path / "sim_runs",
+            "bank_state": output_path / "sim_bank_state",
+            "round_summary": output_path / "sim_round_summary",
+            "importance": output_path / "systemic_importance",
+        }
+        for table_dir in table_dirs.values():
+            table_dir.mkdir(parents=True, exist_ok=True)
+
+        file_map = {
+            "runs": table_dirs["runs"] / f"sim_runs_{year}Q{quarter}.parquet",
+            "bank_state": table_dirs["bank_state"] / f"sim_bank_state_{year}Q{quarter}.parquet",
+            "round_summary": table_dirs["round_summary"] / f"sim_round_summary_{year}Q{quarter}.parquet",
+            "importance": table_dirs["importance"] / f"systemic_importance_{year}Q{quarter}.parquet",
+        }
+        for key, df in outputs.items():
+            df.to_parquet(file_map[key], index=False)
+        outputs["files"] = {key: str(path) for key, path in file_map.items()}
+
+    return outputs
+
+
+def run_default_contagion_analysis_for_quarter(
+    year,
+    quarter,
+    *,
+    data_path=None,
+    output_dir=None,
+    mechanism="Exposure",
+    alpha=1.0,
+    importance_quantile=0.80,
+    track_rounds=True,
+):
+    """
+    Load one quarter, run the default-only contagion analysis, and export parquet.
+    """
+    edges, nodes = load_data(year, quarter, data_path=data_path)
+    if output_dir is None:
+        output_dir = Path(__file__).resolve().parent.parent / "data"
+
+    return run_default_contagion_analysis(
+        edges=edges,
+        nodes=nodes,
+        year=year,
+        quarter=quarter,
+        mechanism=mechanism,
+        alpha=alpha,
+        importance_quantile=importance_quantile,
+        track_rounds=track_rounds,
+        output_dir=output_dir,
+    )
 
 
 """
