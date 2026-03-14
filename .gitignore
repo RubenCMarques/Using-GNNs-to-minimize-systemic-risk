@@ -51,8 +51,8 @@ venv
 *.csv
 *.xlsx
 *.json
-datasets/edges
-datasets/nodes
+/edges
+/nodes
 
 # Model files
 *.pth
