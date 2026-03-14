@@ -254,7 +254,6 @@ def compute_systemic_importance(edges, nodes, mechanism="Exposure"):
         quarter=-1,
         mechanism=mechanism,
         alpha=1.0,
-        importance_quantile=0.80,
         track_rounds=False,
         output_dir=None,
     )
@@ -265,14 +264,13 @@ def compute_systemic_importance(edges, nodes, mechanism="Exposure"):
             "failed_equity_loss": "total_loss",
         }
     )[
-        ["bank_id", "total_loss", "num_failed", "is_systemically_important"]
+        ["bank_id", "total_loss", "num_failed", "num_impacted"]
     ]
 
 
 def build_systemic_importance_summary(
     run_df,
     nodes,
-    importance_quantile=0.80,
 ):
     """
     Rank banks by the damage caused by their own default-contagion simulation.
@@ -280,7 +278,6 @@ def build_systemic_importance_summary(
     Args:
         run_df: DataFrame generated from one run per initial bank.
         nodes: DataFrame with at least 'index' and optionally 'Assets'.
-        importance_quantile: Quantile cutoff used to label systemic banks.
 
     Returns:
         DataFrame with one row per initial bank and ranking metrics.
@@ -295,6 +292,7 @@ def build_systemic_importance_summary(
 
     summary["secondary_defaults"] = (summary["cascade_size"] - 1).clip(lower=0)
     summary["causes_cascade"] = (summary["secondary_defaults"] > 0).astype(int)
+    summary["systemic_risk_label"] = summary["cascade_size"]
 
     if "Assets" in nodes.columns:
         bank_assets = nodes.set_index("index")["Assets"].to_dict()
@@ -315,21 +313,8 @@ def build_systemic_importance_summary(
     summary["loss_rank"] = summary["system_equity_depletion"].rank(
         method="dense", ascending=False
     ).astype(int)
-    summary["composite_score"] = (
-        summary["failed_share"]
-        + summary["impacted_share"]
-        + (
-            summary["system_equity_depletion"]
-            / max(float(nodes["Equity"].sum()), 1e-8)
-        )
-    )
-    summary["composite_rank"] = summary["composite_score"].rank(
+    summary["impact_rank"] = summary["num_impacted"].rank(
         method="dense", ascending=False
-    ).astype(int)
-
-    cutoff = summary["composite_score"].quantile(importance_quantile)
-    summary["is_systemically_important"] = (
-        summary["composite_score"] >= cutoff
     ).astype(int)
 
     ordered_cols = [
@@ -338,6 +323,7 @@ def build_systemic_importance_summary(
         "quarter",
         "bank_id",
         "initial_default",
+        "systemic_risk_label",
         "cascade_size",
         "secondary_defaults",
         "causes_cascade",
@@ -354,15 +340,30 @@ def build_systemic_importance_summary(
         "affected_assets",
         "affected_assets_share",
         "cascade_rank",
+        "impact_rank",
         "loss_rank",
-        "composite_score",
-        "composite_rank",
-        "is_systemically_important",
         "run_id",
     ]
     return summary[ordered_cols].sort_values(
-        ["composite_rank", "loss_rank", "bank_id"]
+        ["systemic_risk_label", "num_impacted", "system_equity_depletion", "bank_id"],
+        ascending=[False, False, False, True],
     ).reset_index(drop=True)
+
+
+def build_target_table(importance_df):
+    """
+    Return the minimal regression target table for one quarter.
+
+    Columns:
+    - bank_id
+    - systemic_risk_label
+    """
+    return (
+        importance_df[["bank_id", "systemic_risk_label"]]
+        .sort_values("bank_id")
+        .reset_index(drop=True)
+        .copy()
+    )
 
 
 def run_default_contagion_analysis(
@@ -373,7 +374,6 @@ def run_default_contagion_analysis(
     quarter,
     mechanism="Exposure",
     alpha=1.0,
-    importance_quantile=0.80,
     track_rounds=True,
     output_dir=None,
 ):
@@ -383,7 +383,7 @@ def run_default_contagion_analysis(
     Option 1 semantics:
     - each bank is defaulted one at a time,
     - contagion starts only from actual default,
-    - outputs contain the essential ranking metrics for systemic importance.
+    - outputs contain the essential ranking metrics for regression targets.
     """
     equity_initial = {
         bank_id: float(value)
@@ -445,23 +445,26 @@ def run_default_contagion_analysis(
     importance_df = build_systemic_importance_summary(
         runs_df,
         nodes,
-        importance_quantile=importance_quantile,
     )
+    target_df = build_target_table(importance_df)
 
     outputs = {
         "runs": runs_df,
         "bank_state": bank_state_df,
         "round_summary": round_summary_df,
         "importance": importance_df,
+        "target": target_df,
     }
 
     if output_dir is not None:
         output_path = Path(output_dir)
+        dataset_targets_dir = Path(__file__).resolve().parent.parent.parent / "datasets" / "targets"
         table_dirs = {
             "runs": output_path / "sim_runs",
             "bank_state": output_path / "sim_bank_state",
             "round_summary": output_path / "sim_round_summary",
             "importance": output_path / "systemic_importance",
+            "target": dataset_targets_dir,
         }
         for table_dir in table_dirs.values():
             table_dir.mkdir(parents=True, exist_ok=True)
@@ -471,9 +474,13 @@ def run_default_contagion_analysis(
             "bank_state": table_dirs["bank_state"] / f"sim_bank_state_{year}Q{quarter}.parquet",
             "round_summary": table_dirs["round_summary"] / f"sim_round_summary_{year}Q{quarter}.parquet",
             "importance": table_dirs["importance"] / f"systemic_importance_{year}Q{quarter}.parquet",
+            "target": table_dirs["target"] / f"target_{year}Q{quarter}.csv",
         }
         for key, df in outputs.items():
-            df.to_parquet(file_map[key], index=False)
+            if key == "target":
+                df.to_csv(file_map[key], index=False)
+            else:
+                df.to_parquet(file_map[key], index=False)
         outputs["files"] = {key: str(path) for key, path in file_map.items()}
 
     return outputs
@@ -487,7 +494,6 @@ def run_default_contagion_analysis_for_quarter(
     output_dir=None,
     mechanism="Exposure",
     alpha=1.0,
-    importance_quantile=0.80,
     track_rounds=True,
 ):
     """
@@ -504,7 +510,6 @@ def run_default_contagion_analysis_for_quarter(
         quarter=quarter,
         mechanism=mechanism,
         alpha=alpha,
-        importance_quantile=importance_quantile,
         track_rounds=track_rounds,
         output_dir=output_dir,
     )
