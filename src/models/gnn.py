@@ -21,12 +21,16 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pathlib import Path
 
 from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv, GATConv, SAGEConv
+from torch_geometric.nn.models import GraphSAGE
 from torch_geometric.utils import negative_sampling
 
 from sklearn.preprocessing import StandardScaler
+
+from src.data.data_loader import load_data
 
 
 
@@ -144,14 +148,27 @@ class FlexibleGNN(nn.Module):
 
         self.config = config
         self.activation = get_activation(config.activation)
-
         dims = (in_dim,) + tuple(config.hidden_dims)
 
-        layers = []
-        for i in range(len(dims) - 1):
-            layers.append(self._build_layer(dims[i], dims[i + 1]))
-
-        self.layers = nn.ModuleList(layers)
+        if self.config.model_type == "GraphSAGE":
+            self.graphsage_model = GraphSAGE(
+                in_channels=in_dim,
+                hidden_channels=config.hidden_dims[0],
+                num_layers=len(config.hidden_dims),
+                out_channels=config.hidden_dims[-1],
+                dropout=config.dropout,
+                act=config.activation,
+                act_first=False,
+                jk=None,
+                aggr=config.aggregation,
+            )
+            self.layers = None
+        else:
+            layers = []
+            for i in range(len(dims) - 1):
+                layers.append(self._build_layer(dims[i], dims[i + 1]))
+            self.layers = nn.ModuleList(layers)
+            self.graphsage_model = None
 
     def _build_layer(self, in_dim, out_dim):
 
@@ -168,6 +185,8 @@ class FlexibleGNN(nn.Module):
             raise ValueError("Unknown model type")
 
     def forward(self, x, edge_index, edge_weight=None):
+        if self.graphsage_model is not None:
+            return self.graphsage_model(x, edge_index)
 
         for layer in self.layers:
 
@@ -292,3 +311,63 @@ def extract_embeddings(edges, nodes, config: GNNConfig, feature_cols=None):
     df.insert(0, "bank_id", bank_ids)
 
     return df
+
+
+def extract_embeddings_for_period(
+    year,
+    quarter,
+    config: GNNConfig,
+    data_path=None,
+    feature_cols=None,
+):
+    """
+    Train one GNN for a single quarter and return node embeddings with period metadata.
+    """
+    edges, nodes = load_data(year, quarter, data_path=data_path)
+    df = extract_embeddings(edges, nodes, config=config, feature_cols=feature_cols)
+    df.insert(1, "year", year)
+    df.insert(2, "quarter", quarter)
+    df.insert(3, "period", f"{year}Q{quarter}")
+    return df
+
+
+def extract_temporal_embeddings(
+    config: GNNConfig,
+    years=None,
+    quarters=(1, 2, 3, 4),
+    data_path=None,
+    feature_cols=None,
+    output_path=None,
+):
+    """
+    Train one model per quarter and concatenate embeddings across time.
+
+    This is the usual setup when bank features and network structure change each quarter
+    and you need a fresh embedding table for downstream temporal analysis.
+    """
+    if years is None:
+        years = range(2016, 2024)
+
+    frames = []
+    for year in years:
+        for quarter in quarters:
+            frame = extract_embeddings_for_period(
+                year=year,
+                quarter=quarter,
+                config=config,
+                data_path=data_path,
+                feature_cols=feature_cols,
+            )
+            frames.append(frame)
+
+    embeddings_df = pd.concat(frames, ignore_index=True)
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if output_path.suffix.lower() == ".csv":
+            embeddings_df.to_csv(output_path, index=False)
+        else:
+            embeddings_df.to_parquet(output_path, index=False)
+
+    return embeddings_df
