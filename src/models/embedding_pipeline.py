@@ -1,4 +1,4 @@
-"""Utilities for quarter-by-quarter GNN embedding experiments."""
+"""Utilities for quarter-by-quarter graph embedding experiments."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 
 from src.data.data_loader import load_data
-from src.models.gnn import GNNConfig, extract_embeddings_for_period
+from src.models.embeddings import GNNConfig, Node2VecConfig, extract_embeddings_for_period
 
 
 TARGET_COLUMNS = {"rank_next_quarter", "srisk_ratio", "srisk_value", "systemic_risk_label"}
@@ -90,13 +90,17 @@ def load_raw_features_for_period(year, quarter):
 def build_quarter_dataset(
     year,
     quarter,
-    config: GNNConfig,
+    config: GNNConfig | Node2VecConfig,
     target_col="systemic_risk_label",
     include_raw_features=True,
     target_dir=None,
 ):
     """Build one quarter of the pooled supervised dataset."""
-    embeddings = extract_embeddings_for_period(year, quarter, config=config)
+    embeddings = extract_embeddings_for_period(
+        year,
+        quarter,
+        config=config,
+    )
     targets = load_targets_for_period(year, quarter, target_col=target_col, target_dir=target_dir)
 
     if targets.empty:
@@ -120,7 +124,7 @@ def build_quarter_dataset(
 
 
 def build_pooled_dataset(
-    config: GNNConfig,
+    config: GNNConfig | Node2VecConfig,
     years=None,
     quarters=(1, 2, 3, 4),
     target_col="systemic_risk_label",

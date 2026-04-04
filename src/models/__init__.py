@@ -1,24 +1,12 @@
 """Models for contagion simulation and classical algorithms."""
 
-from .contagion import (
-    simulate_failure,
-    simulate_partial_distress,
-    compute_systemic_importance,
-)
-from .classical_algorithms import (
-    degree_centrality,
-    betweenness_centrality,
-    closeness_centrality,
-    eigenvector_centrality,
-    weighted_degree,
-    debtrank,
-    pagerank_centrality
-)
-from .gnn import (
+from .embeddings import (
     GNNConfig,
     FlexibleGNN,
+    Node2VecConfig,
     prepare_graph_data,
     train_gnn,
+    train_node2vec,
     extract_embeddings,
     extract_embeddings_for_period,
     extract_temporal_embeddings,
@@ -48,21 +36,35 @@ from .ml_train_and_store import (
     make_log_regression_model as make_log_regression_model_shared,
 )
 
+try:
+    from .contagion import (
+        simulate_failure,
+        simulate_partial_distress,
+        compute_systemic_importance,
+    )
+except ModuleNotFoundError:
+    pass
+
+try:
+    from .classical_algorithms import (
+        degree_centrality,
+        betweenness_centrality,
+        closeness_centrality,
+        eigenvector_centrality,
+        weighted_degree,
+        debtrank,
+        pagerank_centrality,
+    )
+except ModuleNotFoundError:
+    pass
+
 __all__ = [
-    'simulate_failure',
-    'simulate_partial_distress',
-    'compute_systemic_importance',
-    'degree_centrality',
-    'betweenness_centrality',
-    'closeness_centrality',
-    'eigenvector_centrality',
-    'weighted_degree',
-    'debtrank',
-    'pagerank_centrality',
     'GNNConfig',
     'FlexibleGNN',
+    'Node2VecConfig',
     'prepare_graph_data',
     'train_gnn',
+    'train_node2vec',
     'extract_embeddings',
     'extract_embeddings_for_period',
     'extract_temporal_embeddings',
@@ -85,3 +87,21 @@ __all__ = [
     'load_gnn_ml_dataset',
     'make_log_regression_model_shared',
 ]
+
+if 'simulate_failure' in globals():
+    __all__.extend([
+        'simulate_failure',
+        'simulate_partial_distress',
+        'compute_systemic_importance',
+    ])
+
+if 'degree_centrality' in globals():
+    __all__.extend([
+        'degree_centrality',
+        'betweenness_centrality',
+        'closeness_centrality',
+        'eigenvector_centrality',
+        'weighted_degree',
+        'debtrank',
+        'pagerank_centrality',
+    ])
