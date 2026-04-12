@@ -47,12 +47,13 @@ venv
 .AppleDouble
 .LSOverride
 
-# Data files (adjust as needed)
+# Data files 
 *.csv
 *.xlsx
 *.json
 /edges
 /nodes
+/systemic_importance
 
 # Model files
 *.pth
