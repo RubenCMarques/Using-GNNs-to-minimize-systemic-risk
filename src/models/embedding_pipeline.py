@@ -41,7 +41,7 @@ def iter_quarters(years=None, quarters=(1, 2, 3, 4)):
 def load_targets_for_period(year, quarter, target_col="systemic_risk_label", target_dir=None):
     """Load the supervised target table for one quarter."""
     if target_dir is None:
-        target_dir = Path(__file__).resolve().parent.parent.parent / "datasets" / "targets"
+        target_dir = Path(__file__).resolve().parent.parent / "datasets" / "targets"
 
     target_path = Path(target_dir) / f"target_{year}Q{quarter}.csv"
     if not target_path.exists():

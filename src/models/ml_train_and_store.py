@@ -75,12 +75,13 @@ def load_classical_ml_dataset(
 
 def load_gnn_ml_dataset(
     project_root,
-    target_col="systemic_risk_label",
+    target_col="log_systemic_risk_label",
     dataset_path=None,
+    filename="graphsage_srisk_dataset.parquet",
 ):
     project_root = Path(project_root)
     if dataset_path is None:
-        dataset_path = project_root / "src" / "data" /"embeddings" / "graphsage_srisk_dataset.parquet"
+        dataset_path = project_root / "src" / "data" /"embeddings" / filename
 
     df = pd.read_parquet(dataset_path)
     feature_cols = [c for c in df.columns if c.startswith("emb_")]
