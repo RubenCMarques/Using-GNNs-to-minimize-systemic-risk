@@ -27,7 +27,7 @@ def load_data(year, quarter, data_path=None):
     """
     if data_path is None:
         project_root = Path(__file__).parent.parent.parent
-        data_path = project_root / "datasets"
+        data_path = project_root/"src"/"datasets"
 
     edge_file = data_path / "edges" / f"edge_{year}Q{quarter}.csv"
     node_file = data_path / "nodes" / f"{year}Q{quarter}.csv"

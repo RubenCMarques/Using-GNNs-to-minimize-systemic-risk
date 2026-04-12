@@ -458,7 +458,7 @@ def run_default_contagion_analysis(
 
     if output_dir is not None:
         output_path = Path(output_dir)
-        dataset_targets_dir = Path(__file__).resolve().parent.parent.parent / "datasets" / "targets"
+        dataset_targets_dir = Path(__file__).resolve().parent.parent.parent / "src" / "datasets" / "targets"
         table_dirs = {
             "runs": output_path / "sim_runs",
             "bank_state": output_path / "sim_bank_state",

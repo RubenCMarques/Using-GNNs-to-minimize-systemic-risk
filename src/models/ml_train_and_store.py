@@ -45,7 +45,7 @@ def load_classical_ml_dataset(
     if feature_dir is None:
         feature_dir = project_root / "src" / "data" / "classical_features"
     if target_dir is None:
-        target_dir = project_root / "datasets" / "targets"
+        target_dir = project_root / "src" /"datasets" / "targets"
 
     frames = []
     for year, quarter in iter_quarters():
@@ -80,7 +80,7 @@ def load_gnn_ml_dataset(
 ):
     project_root = Path(project_root)
     if dataset_path is None:
-        dataset_path = project_root / "outputs" / "embeddings" / "graphsage_srisk_dataset.parquet"
+        dataset_path = project_root / "src" / "data" /"embeddings" / "graphsage_srisk_dataset.parquet"
 
     df = pd.read_parquet(dataset_path)
     feature_cols = [c for c in df.columns if c.startswith("emb_")]
