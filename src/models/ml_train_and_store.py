@@ -94,7 +94,7 @@ def chronological_split(
     df,
     train_end=(2021, 4),
     val_end=(2022, 4),
-    test_end=(2023, 3),
+    test_end=(2023, 4),
 ):
     keyed = df.copy()
     keyed["_quarter_key"] = keyed["year"] * 10 + keyed["quarter"]
