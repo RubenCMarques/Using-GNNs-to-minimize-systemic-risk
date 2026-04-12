@@ -19,11 +19,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-interbank-0.1.0/
-sim_bank_state/
-sim_round_summary/
-sim_runs/
-interbank-main/
 
 # Virtual Environment
 venv/
@@ -53,7 +48,13 @@ venv
 *.json
 /edges
 /nodes
-/systemic_importance
+systemic_importance/
+interbank-0.1.0/
+sim_bank_state/
+sim_round_summary/
+sim_runs/
+interbank-main/
+
 
 # Model files
 *.pth
