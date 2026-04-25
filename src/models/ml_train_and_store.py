@@ -143,6 +143,8 @@ class ModelTrainer:
         }
 
     def train(self, model, name):
+        import copy
+        model = copy.deepcopy(model)
         X_train = self.train_df[self.feature_cols]
         y_train = self.train_df[self.target_col]
 
