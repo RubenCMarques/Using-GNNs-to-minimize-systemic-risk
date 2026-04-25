@@ -3,9 +3,12 @@ Dynamic graph embedding backends for interbank networks.
 
 This module exposes a shared embedding API while keeping GraphSAGE and
 Node2Vec training logic separate internally.
-"""
 
-from pathlib import Path
+Temporal coherence across quarters is achieved via warm-starting: each
+quarter's model is initialised from the previous quarter's weights so that
+the embedding space evolves smoothly rather than being re-randomised from
+scratch every period.
+"""
 
 import numpy as np
 import pandas as pd
@@ -32,6 +35,8 @@ class GNNConfig:
         aggregation="mean",
         negative_sampling_ratio=1.0,
         device="cpu",
+        verbose=False,
+        log_every=10,
     ):
         self.hidden_dims = hidden_dims
         self.dropout = dropout
@@ -42,6 +47,8 @@ class GNNConfig:
         self.aggregation = aggregation
         self.negative_sampling_ratio = negative_sampling_ratio
         self.device = device
+        self.verbose = verbose
+        self.log_every = log_every
 
 
 class Node2VecConfig:
@@ -60,6 +67,8 @@ class Node2VecConfig:
         num_workers=0,
         sparse=True,
         device="cpu",
+        verbose=False,
+        log_every=10,
     ):
         self.embedding_dim = embedding_dim
         self.walk_length = walk_length
@@ -74,6 +83,8 @@ class Node2VecConfig:
         self.num_workers = num_workers
         self.sparse = sparse
         self.device = device
+        self.verbose = verbose
+        self.log_every = log_every
 
 
 def prepare_graph_data(edges, nodes, feature_cols=None):
@@ -117,7 +128,12 @@ def prepare_graph_data(edges, nodes, feature_cols=None):
 
 
 class FlexibleGNN(nn.Module):
-    """Compatibility wrapper around the GraphSAGE backend."""
+    """Compatibility wrapper around the GraphSAGE backend.
+
+    hidden_dims is a (hidden_channels, out_channels) tuple:
+      - hidden_dims[0]: width of all intermediate layers
+      - hidden_dims[-1]: output embedding dimension
+    """
 
     def __init__(self, in_dim, config: GNNConfig):
         super().__init__()
@@ -161,11 +177,25 @@ def link_prediction_loss(embeddings, edge_index, num_nodes, negative_ratio=1.0):
     return pos_loss + neg_loss
 
 
-def train_gnn(data, config: GNNConfig):
-    """Train a GraphSAGE model on one graph."""
+def train_gnn(data, config: GNNConfig, init_state_dict=None):
+    """Train a GraphSAGE model on one graph.
+
+    Args:
+        data: PyG Data object for this quarter.
+        config: GNNConfig.
+        init_state_dict: optional state dict from the previous quarter's model.
+            When provided the model is warm-started from those weights, which
+            keeps the embedding space temporally coherent across quarters.
+
+    Returns:
+        Trained model.
+    """
     device = torch.device(config.device)
     data = data.to(device)
     model = FlexibleGNN(data.x.size(1), config).to(device)
+
+    if init_state_dict is not None:
+        model.load_state_dict(init_state_dict)
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -173,7 +203,7 @@ def train_gnn(data, config: GNNConfig):
         weight_decay=config.weight_decay,
     )
 
-    for _ in range(config.epochs):
+    for epoch in range(config.epochs):
         model.train()
         optimizer.zero_grad()
         embeddings = model(data.x, data.edge_index)
@@ -186,11 +216,25 @@ def train_gnn(data, config: GNNConfig):
         loss.backward()
         optimizer.step()
 
+        if config.verbose and (epoch + 1) % config.log_every == 0:
+            print(f"    epoch {epoch + 1}/{config.epochs}  loss={loss.item():.4f}")
+
     return model
 
 
-def train_node2vec(data, config: Node2VecConfig):
-    """Train a Node2Vec model on one graph."""
+def train_node2vec(data, config: Node2VecConfig, init_state_dict=None):
+    """Train a Node2Vec model on one graph.
+
+    Args:
+        data: PyG Data object for this quarter.
+        config: Node2VecConfig.
+        init_state_dict: optional state dict from the previous quarter's model.
+            When provided the embedding table is warm-started, which anchors
+            each node's representation across quarters.
+
+    Returns:
+        Trained model.
+    """
     device = torch.device(config.device)
 
     model = Node2Vec(
@@ -206,6 +250,9 @@ def train_node2vec(data, config: Node2VecConfig):
         sparse=config.sparse,
     ).to(device)
 
+    if init_state_dict is not None:
+        model.load_state_dict(init_state_dict)
+
     loader = model.loader(
         batch_size=config.batch_size,
         shuffle=True,
@@ -215,20 +262,26 @@ def train_node2vec(data, config: Node2VecConfig):
     optimizer_cls = torch.optim.SparseAdam if config.sparse else torch.optim.Adam
     optimizer = optimizer_cls(model.parameters(), lr=config.lr)
 
-    for _ in range(config.epochs):
+    for epoch in range(config.epochs):
         model.train()
+        total_loss = 0.0
         for pos_rw, neg_rw in loader:
             optimizer.zero_grad()
             loss = model.loss(pos_rw.to(device), neg_rw.to(device))
             loss.backward()
             optimizer.step()
+            total_loss += loss.item()
+
+        if config.verbose and (epoch + 1) % config.log_every == 0:
+            print(f"    epoch {epoch + 1}/{config.epochs}  loss={total_loss:.4f}")
 
     return model
 
 
-def _extract_graphsage_embeddings(edges, nodes, config: GNNConfig, feature_cols=None):
+def _extract_graphsage_embeddings(edges, nodes, config: GNNConfig, feature_cols=None, init_state_dict=None):
+    """Returns (embeddings_df, state_dict)."""
     data, bank_ids = prepare_graph_data(edges, nodes, feature_cols)
-    model = train_gnn(data, config)
+    model = train_gnn(data, config, init_state_dict=init_state_dict)
 
     device = torch.device(config.device)
     data = data.to(device)
@@ -239,12 +292,13 @@ def _extract_graphsage_embeddings(edges, nodes, config: GNNConfig, feature_cols=
     emb_cols = [f"emb_{i}" for i in range(embeddings.shape[1])]
     df = pd.DataFrame(embeddings, columns=emb_cols)
     df.insert(0, "bank_id", bank_ids)
-    return df
+    return df, model.state_dict()
 
 
-def _extract_node2vec_embeddings(edges, nodes, config: Node2VecConfig):
+def _extract_node2vec_embeddings(edges, nodes, config: Node2VecConfig, init_state_dict=None):
+    """Returns (embeddings_df, state_dict)."""
     data, bank_ids = prepare_graph_data(edges, nodes, feature_cols=None)
-    model = train_node2vec(data, config)
+    model = train_node2vec(data, config, init_state_dict=init_state_dict)
 
     model.eval()
     with torch.no_grad():
@@ -253,16 +307,21 @@ def _extract_node2vec_embeddings(edges, nodes, config: Node2VecConfig):
     emb_cols = [f"emb_{i}" for i in range(embeddings.shape[1])]
     df = pd.DataFrame(embeddings, columns=emb_cols)
     df.insert(0, "bank_id", bank_ids)
-    return df
+    return df, model.state_dict()
 
 
-def extract_embeddings(edges, nodes, config, feature_cols=None):
-    """Extract embeddings using the backend implied by the config type."""
+def extract_embeddings(edges, nodes, config, feature_cols=None, init_state_dict=None):
+    """Extract embeddings using the backend implied by the config type.
+
+    Returns:
+        (embeddings_df, state_dict) — the state dict can be passed to the next
+        call as init_state_dict to warm-start the following quarter.
+    """
     if isinstance(config, GNNConfig):
-        return _extract_graphsage_embeddings(edges, nodes, config, feature_cols)
+        return _extract_graphsage_embeddings(edges, nodes, config, feature_cols, init_state_dict)
 
     if isinstance(config, Node2VecConfig):
-        return _extract_node2vec_embeddings(edges, nodes, config)
+        return _extract_node2vec_embeddings(edges, nodes, config, init_state_dict)
 
     raise TypeError(
         "Unsupported embedding config. Use GNNConfig for GraphSAGE or "
@@ -276,48 +335,25 @@ def extract_embeddings_for_period(
     config,
     data_path=None,
     feature_cols=None,
+    init_state_dict=None,
 ):
-    """Train one embedding model for a single quarter and return embeddings."""
+    """Train one embedding model for a single quarter and return embeddings.
+
+    Args:
+        year, quarter: period to embed.
+        config: GNNConfig or Node2VecConfig.
+        data_path: override for the datasets directory.
+        feature_cols: explicit list of node feature columns (GraphSAGE only).
+        init_state_dict: state dict from the previous quarter for warm-starting.
+
+    Returns:
+        (embeddings_df, state_dict)
+    """
     edges, nodes = load_data(year, quarter, data_path=data_path)
-    df = extract_embeddings(edges, nodes, config=config, feature_cols=feature_cols)
+    df, state_dict = extract_embeddings(
+        edges, nodes, config=config, feature_cols=feature_cols, init_state_dict=init_state_dict
+    )
     df.insert(1, "year", year)
     df.insert(2, "quarter", quarter)
     df.insert(3, "period", f"{year}Q{quarter}")
-    return df
-
-
-def extract_temporal_embeddings(
-    config,
-    years=None,
-    quarters=(1, 2, 3, 4),
-    data_path=None,
-    feature_cols=None,
-    output_path=None,
-):
-    """Train one embedding model per quarter and concatenate embeddings."""
-    if years is None:
-        years = range(2016, 2024)
-
-    frames = []
-    for year in years:
-        for quarter in quarters:
-            frame = extract_embeddings_for_period(
-                year=year,
-                quarter=quarter,
-                config=config,
-                data_path=data_path,
-                feature_cols=feature_cols,
-            )
-            frames.append(frame)
-
-    embeddings_df = pd.concat(frames, ignore_index=True)
-
-    if output_path is not None:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if output_path.suffix.lower() == ".csv":
-            embeddings_df.to_csv(output_path, index=False)
-        else:
-            embeddings_df.to_parquet(output_path, index=False)
-
-    return embeddings_df
+    return df, state_dict

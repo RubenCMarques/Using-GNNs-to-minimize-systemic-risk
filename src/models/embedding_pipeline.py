@@ -1,15 +1,16 @@
-"""Utilities for quarter-by-quarter graph embedding experiments."""
+"""Utilities for quarter-by-quarter graph embedding experiments.
+
+Temporal coherence is maintained by threading each quarter's trained model
+state dict into the next quarter's initialisation (warm-starting). This means
+embeddings evolve smoothly across time rather than being randomised anew each
+quarter, making cross-quarter pooled datasets meaningful.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.pipeline import Pipeline
 
 from src.data.data_loader import load_data
 from src.models.embeddings import GNNConfig, Node2VecConfig, extract_embeddings_for_period
@@ -18,28 +19,15 @@ from src.models.embeddings import GNNConfig, Node2VecConfig, extract_embeddings_
 TARGET_COLUMNS = {"rank_next_quarter", "srisk_ratio", "srisk_value", "systemic_risk_label"}
 
 
-@dataclass(frozen=True, order=True)
-class QuarterKey:
-    year: int
-    quarter: int
-
-    @property
-    def period(self) -> str:
-        return f"{self.year}Q{self.quarter}"
-
-
-def iter_quarters(years=None, quarters=(1, 2, 3, 4)):
-    """Yield quarter keys in chronological order."""
+def _iter_quarters(years=None, quarters=(1, 2, 3, 4)):
     if years is None:
         years = range(2016, 2024)
-
     for year in years:
         for quarter in quarters:
-            yield QuarterKey(year=year, quarter=quarter)
+            yield year, quarter
 
 
-def load_targets_for_period(year, quarter, target_col="systemic_risk_label", target_dir=None):
-    """Load the supervised target table for one quarter."""
+def _load_targets(year, quarter, target_col="systemic_risk_label", target_dir=None):
     if target_dir is None:
         target_dir = Path(__file__).resolve().parent.parent / "datasets" / "targets"
 
@@ -51,76 +39,63 @@ def load_targets_for_period(year, quarter, target_col="systemic_risk_label", tar
     if target_col not in target_df.columns:
         return pd.DataFrame(columns=["bank_id", "year", "quarter", "period", target_col])
 
-    target_df = (
+    return (
         target_df[["bank_id", target_col]]
-        .assign(
-            year=year,
-            quarter=quarter,
-            period=f"{year}Q{quarter}",
-        )
+        .assign(year=year, quarter=quarter, period=f"{year}Q{quarter}")
         .dropna(subset=[target_col])
         .reset_index(drop=True)
     )
-    return target_df
 
 
-def load_raw_features_for_period(year, quarter):
-    """Load numeric bank features for one quarter, excluding labels."""
+def _load_raw_features(year, quarter):
     _, nodes = load_data(year, quarter)
-
     feature_cols = [
-        col
-        for col in nodes.columns
+        col for col in nodes.columns
         if col not in TARGET_COLUMNS
         and col != "index"
         and pd.api.types.is_numeric_dtype(nodes[col])
     ]
-
     return (
         nodes[["index"] + feature_cols]
         .rename(columns={"index": "bank_id"})
-        .assign(
-            year=year,
-            quarter=quarter,
-            period=f"{year}Q{quarter}",
-        )
+        .assign(year=year, quarter=quarter, period=f"{year}Q{quarter}")
     )
 
 
-def build_quarter_dataset(
+def _build_quarter_dataset(
     year,
     quarter,
-    config: GNNConfig | Node2VecConfig,
-    target_col="systemic_risk_label",
-    include_raw_features=True,
-    target_dir=None,
+    config,
+    target_col,
+    include_raw_features,
+    target_dir,
+    init_state_dict=None,
 ):
-    """Build one quarter of the pooled supervised dataset."""
-    embeddings = extract_embeddings_for_period(
-        year,
-        quarter,
-        config=config,
+    """Build one quarter's dataset and return it alongside the trained model state.
+
+    Args:
+        init_state_dict: state dict from the previous quarter's model.  When
+            supplied the embedding model is warm-started, ensuring temporal
+            coherence across quarters.
+
+    Returns:
+        (df, state_dict) — df is empty if no targets are available.
+    """
+    embeddings, state_dict = extract_embeddings_for_period(
+        year, quarter, config=config, init_state_dict=init_state_dict
     )
-    targets = load_targets_for_period(year, quarter, target_col=target_col, target_dir=target_dir)
+    targets = _load_targets(year, quarter, target_col=target_col, target_dir=target_dir)
 
     if targets.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), state_dict
 
-    df = embeddings.merge(
-        targets,
-        on=["bank_id", "year", "quarter", "period"],
-        how="inner",
-    )
+    df = embeddings.merge(targets, on=["bank_id", "year", "quarter", "period"], how="inner")
 
     if include_raw_features:
-        raw_features = load_raw_features_for_period(year, quarter)
-        df = df.merge(
-            raw_features,
-            on=["bank_id", "year", "quarter", "period"],
-            how="left",
-        )
+        raw_features = _load_raw_features(year, quarter)
+        df = df.merge(raw_features, on=["bank_id", "year", "quarter", "period"], how="left")
 
-    return df
+    return df, state_dict
 
 
 def build_pooled_dataset(
@@ -132,19 +107,27 @@ def build_pooled_dataset(
     target_dir=None,
     output_path=None,
 ):
-    """Build the full pooled dataset from quarter-specific embeddings."""
+    """Build the full pooled dataset from quarter-specific embeddings.
+
+    Each quarter is warm-started from the previous quarter's model weights so
+    that the embedding space is temporally coherent — dimension k means the
+    same thing in 2016Q1 and 2016Q2.
+    """
     frames = []
-    for key in iter_quarters(years=years, quarters=quarters):
-        quarter_df = build_quarter_dataset(
-            key.year,
-            key.quarter,
-            config=config,
-            target_col=target_col,
-            include_raw_features=include_raw_features,
-            target_dir=target_dir,
+    prev_state_dict = None  # first quarter trains from a random init
+
+    for year, quarter in _iter_quarters(years=years, quarters=quarters):
+        df, prev_state_dict = _build_quarter_dataset(
+            year,
+            quarter,
+            config,
+            target_col,
+            include_raw_features,
+            target_dir,
+            init_state_dict=prev_state_dict,
         )
-        if not quarter_df.empty:
-            frames.append(quarter_df)
+        if not df.empty:
+            frames.append(df)
 
     if not frames:
         return pd.DataFrame()
@@ -160,85 +143,3 @@ def build_pooled_dataset(
             pooled.to_parquet(output_path, index=False)
 
     return pooled
-
-
-def chronological_split(
-    df,
-    train_end=(2021, 4),
-    val_end=(2022, 4),
-    test_end=(2023, 3),
-):
-    """Split a pooled dataset into train/validation/test by quarter."""
-    keyed = df.copy()
-    keyed["_quarter_key"] = keyed["year"] * 10 + keyed["quarter"]
-
-    train_key = train_end[0] * 10 + train_end[1]
-    val_key = val_end[0] * 10 + val_end[1]
-    test_key = test_end[0] * 10 + test_end[1]
-
-    train_df = keyed[keyed["_quarter_key"] <= train_key].drop(columns="_quarter_key")
-    val_df = keyed[(keyed["_quarter_key"] > train_key) & (keyed["_quarter_key"] <= val_key)].drop(columns="_quarter_key")
-    test_df = keyed[(keyed["_quarter_key"] > val_key) & (keyed["_quarter_key"] <= test_key)].drop(columns="_quarter_key")
-
-    return train_df.reset_index(drop=True), val_df.reset_index(drop=True), test_df.reset_index(drop=True)
-
-
-def default_feature_columns(df, target_col="systemic_risk_label"):
-    """Select model input columns from the pooled table."""
-    exclude = {"bank_id", "year", "quarter", "period", target_col}
-    return [col for col in df.columns if col not in exclude]
-
-
-def train_baseline_regressor(
-    train_df,
-    val_df,
-    test_df,
-    target_col="systemic_risk_label",
-    feature_cols=None,
-    random_state=42,
-):
-    """Fit a simple non-temporal regressor on the pooled quarter dataset."""
-    if feature_cols is None:
-        feature_cols = default_feature_columns(train_df, target_col=target_col)
-
-    model = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median")),
-            (
-                "regressor",
-                RandomForestRegressor(
-                    n_estimators=300,
-                    max_depth=None,
-                    min_samples_leaf=2,
-                    n_jobs=-1,
-                    random_state=random_state,
-                ),
-            ),
-        ]
-    )
-
-    model.fit(train_df[feature_cols], train_df[target_col])
-
-    results = {}
-    for split_name, split_df in {
-        "train": train_df,
-        "validation": val_df,
-        "test": test_df,
-    }.items():
-        if split_df.empty:
-            results[split_name] = {
-                "mae": float("nan"),
-                "rmse": float("nan"),
-                "r2": float("nan"),
-            }
-            continue
-
-        predictions = model.predict(split_df[feature_cols])
-        truth = split_df[target_col]
-        results[split_name] = {
-            "mae": mean_absolute_error(truth, predictions),
-            "rmse": mean_squared_error(truth, predictions) ** 0.5,
-            "r2": r2_score(truth, predictions),
-        }
-
-    return model, feature_cols, results

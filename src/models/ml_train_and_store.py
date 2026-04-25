@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-from sklearn.compose import TransformedTargetRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
@@ -29,13 +27,7 @@ CLASSICAL_FEATURE_CANDIDATES = [
 ]
 
 
-def iter_quarters(years=range(2016, 2024), quarters=(1, 2, 3, 4)):
-    for year in years:
-        for quarter in quarters:
-            yield year, quarter
-
-
-def load_classical_ml_dataset(
+def load_classical_dataset(
     project_root,
     target_col="systemic_risk_label",
     feature_dir=None,
@@ -45,23 +37,21 @@ def load_classical_ml_dataset(
     if feature_dir is None:
         feature_dir = project_root / "src" / "data" / "classical_features"
     if target_dir is None:
-        target_dir = project_root / "src" /"datasets" / "targets"
+        target_dir = project_root / "src" / "datasets" / "targets"
 
     frames = []
-    for year, quarter in iter_quarters():
-        feature_path = Path(feature_dir) / f"classical_features_{year}Q{quarter}.parquet"
-        target_path = Path(target_dir) / f"target_{year}Q{quarter}.csv"
-        if not feature_path.exists() or not target_path.exists():
-            continue
+    for year in range(2016, 2024):
+        for quarter in range(1, 5):
+            feature_path = Path(feature_dir) / f"classical_features_{year}Q{quarter}.parquet"
+            target_path = Path(target_dir) / f"target_{year}Q{quarter}.csv"
+            if not feature_path.exists() or not target_path.exists():
+                continue
 
-        features = pd.read_parquet(feature_path)
-        target = pd.read_csv(target_path)
-
-        features = features.copy()
-        features["year"] = year
-        features["quarter"] = quarter
-        features["period"] = f"{year}Q{quarter}"
-        frames.append(features.merge(target, on="bank_id", how="inner"))
+            features = pd.read_parquet(feature_path).copy()
+            features["year"] = year
+            features["quarter"] = quarter
+            features["period"] = f"{year}Q{quarter}"
+            frames.append(features.merge(pd.read_csv(target_path), on="bank_id", how="inner"))
 
     if not frames:
         raise ValueError("No classical feature files were merged.")
@@ -73,7 +63,7 @@ def load_classical_ml_dataset(
     return df, feature_cols
 
 
-def load_gnn_ml_dataset(
+def load_gnn_dataset(
     project_root,
     target_col="log_systemic_risk_label",
     dataset_path=None,
@@ -81,7 +71,7 @@ def load_gnn_ml_dataset(
 ):
     project_root = Path(project_root)
     if dataset_path is None:
-        dataset_path = project_root / "src" / "data" /"embeddings" / filename
+        dataset_path = project_root / "src" / "data" / "embeddings" / filename
 
     df = pd.read_parquet(dataset_path)
     feature_cols = [c for c in df.columns if c.startswith("emb_")]
@@ -90,54 +80,38 @@ def load_gnn_ml_dataset(
     return df, feature_cols
 
 
-def chronological_split(
+def time_split(
     df,
     train_end=(2021, 4),
     val_end=(2022, 4),
     test_end=(2023, 4),
 ):
     keyed = df.copy()
-    keyed["_quarter_key"] = keyed["year"] * 10 + keyed["quarter"]
+    keyed["_key"] = keyed["year"] * 10 + keyed["quarter"]
 
     train_key = train_end[0] * 10 + train_end[1]
     val_key = val_end[0] * 10 + val_end[1]
     test_key = test_end[0] * 10 + test_end[1]
 
-    train_df = keyed[keyed["_quarter_key"] <= train_key].drop(columns="_quarter_key")
-    val_df = keyed[(keyed["_quarter_key"] > train_key) & (keyed["_quarter_key"] <= val_key)].drop(columns="_quarter_key")
-    test_df = keyed[(keyed["_quarter_key"] > val_key) & (keyed["_quarter_key"] <= test_key)].drop(columns="_quarter_key")
+    train_df = keyed[keyed["_key"] <= train_key].drop(columns="_key")
+    val_df = keyed[(keyed["_key"] > train_key) & (keyed["_key"] <= val_key)].drop(columns="_key")
+    test_df = keyed[(keyed["_key"] > val_key) & (keyed["_key"] <= test_key)].drop(columns="_key")
 
     return train_df.reset_index(drop=True), val_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
-def evaluate_regressor(model, X, y):
-    pred = model.predict(X)
-    return {
-        "mae": mean_absolute_error(y, pred),
-        "rmse": mean_squared_error(y, pred) ** 0.5,
-        "r2": r2_score(y, pred),
-    }
-
-
-def make_log_regression_model(regressor, scale_features=False):
+def make_pipeline(regressor, scale_features=False):
     steps = [("imputer", SimpleImputer(strategy="median"))]
     if scale_features:
         steps.append(("scaler", StandardScaler()))
-    steps.append(
-        (
-            "model",
-            TransformedTargetRegressor(
-                regressor=regressor,
-                func=np.log1p,
-                inverse_func=np.expm1,
-            ),
-        )
-    )
+    # No target transform: the target is already log_systemic_risk_label.
+    # Applying log1p again would be a redundant double-log.
+    steps.append(("model", regressor))
     return Pipeline(steps)
 
 
 @dataclass
-class MLTrainAndStore:
+class ModelTrainer:
     df: pd.DataFrame
     feature_cols: list[str]
     target_col: str = "systemic_risk_label"
@@ -153,69 +127,60 @@ class MLTrainAndStore:
     ]))
 
     def __post_init__(self):
-        self.train_df, self.val_df, self.test_df = chronological_split(
+        self.train_df, self.val_df, self.test_df = time_split(
             self.df,
             train_end=self.train_end,
             val_end=self.val_end,
             test_end=self.test_end,
         )
 
-    def train_and_store(self, model, name):
+    def _score(self, model, X, y):
+        pred = model.predict(X)
+        return {
+            "mae": mean_absolute_error(y, pred),
+            "rmse": mean_squared_error(y, pred) ** 0.5,
+            "r2": r2_score(y, pred),
+        }
+
+    def train(self, model, name):
         X_train = self.train_df[self.feature_cols]
         y_train = self.train_df[self.target_col]
-        X_val = self.val_df[self.feature_cols]
-        y_val = self.val_df[self.target_col]
-        X_test = self.test_df[self.feature_cols]
-        y_test = self.test_df[self.target_col]
 
         model.fit(X_train, y_train)
         self.models[name] = model
 
         row = {"model": name}
-        for split_name, X_split, y_split in [
-            ("train", X_train, y_train),
-            ("validation", X_val, y_val),
-            ("test", X_test, y_test),
-        ]:
-            metrics = evaluate_regressor(model, X_split, y_split)
+        for split_name, split_df in [("train", self.train_df), ("validation", self.val_df), ("test", self.test_df)]:
+            metrics = self._score(model, split_df[self.feature_cols], split_df[self.target_col])
             row[f"{split_name}_mae"] = metrics["mae"]
             row[f"{split_name}_rmse"] = metrics["rmse"]
             row[f"{split_name}_r2"] = metrics["r2"]
 
-        self.results_df = pd.concat(
-            [self.results_df, pd.DataFrame([row])],
-            ignore_index=True,
-        )
         self.results_df = (
-            self.results_df
-            .sort_values(["validation_rmse", "validation_mae"], ascending=[True, True])
+            pd.concat([self.results_df, pd.DataFrame([row])], ignore_index=True)
+            .sort_values(["validation_rmse", "validation_mae"])
             .reset_index(drop=True)
         )
         return model
 
-    def train_many(self, models: dict[str, object]):
+    def train_all(self, models: dict[str, object]):
         for name, model in models.items():
-            self.train_and_store(model=model, name=name)
-        return self.results()
+            self.train(model=model, name=name)
+        return self.leaderboard()
 
-    def results(self):
+    def leaderboard(self):
         return self.results_df.copy()
 
-    def best_model_name(self):
+    def best_name(self):
         if self.results_df.empty:
             raise ValueError("No models have been trained.")
         return self.results_df.iloc[0]["model"]
 
-    def best_model(self):
-        return self.models[self.best_model_name()]
-
-    def predict_test(self, model_name=None):
+    def test_predictions(self, model_name=None):
         if model_name is None:
-            model_name = self.best_model_name()
+            model_name = self.best_name()
         model = self.models[model_name]
-        pred_df = self.test_df[
-            ["bank_id", "year", "quarter", "period", self.target_col]
-        ].copy()
+        pred_df = self.test_df[["bank_id", "year", "quarter", "period", self.target_col]].copy()
         pred_df["prediction"] = model.predict(self.test_df[self.feature_cols])
         pred_df["abs_error"] = (pred_df[self.target_col] - pred_df["prediction"]).abs()
         return pred_df.sort_values("abs_error", ascending=False).reset_index(drop=True)

@@ -17,7 +17,7 @@ def load_data(year, quarter, data_path=None):
     Args:
         year (int): Year (2016-2023)
         quarter (int): Quarter (1-4)
-        data_path (str): Path to datasets folder. Default: project_root/datasets
+        data_path (str): Path to datasets folder. Default: root/src/datasets
 
     Returns:
         tuple: (edges, nodes)

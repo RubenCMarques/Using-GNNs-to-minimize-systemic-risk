@@ -54,7 +54,7 @@ sim_bank_state/
 sim_round_summary/
 sim_runs/
 interbank-main/
-
+src/data/embeddings/*.parquet
 
 # Model files
 *.pth
