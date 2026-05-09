@@ -13,15 +13,11 @@ from sklearn.preprocessing import StandardScaler
 
 
 CLASSICAL_FEATURE_CANDIDATES = [
-    "degree_centrality_in",
-    "degree_centrality_out",
     "degree_centrality_total",
+    "weighted_degree_total",
     "betweenness_centrality",
     "closeness_centrality",
     "eigenvector_centrality",
-    "weighted_degree_in",
-    "weighted_degree_out",
-    "weighted_degree_total",
     "pagerank",
     "debtrank",
 ]
