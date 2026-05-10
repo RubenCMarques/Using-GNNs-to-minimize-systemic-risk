@@ -16,6 +16,7 @@ Table 3 – round_summary (1 row per cascade round per run; only when
 Usage in a simulation loop
 ---------------------------
     equity_initial = nodes.set_index("index")["Equity"].to_dict()
+    asset_initial = nodes.set_index("index")["Total_assets"].to_dict()
     n_banks = len(nodes)
     n_edges = len(edges)
 
@@ -39,9 +40,9 @@ Usage in a simulation loop
             initial_bank=int(bank_id), mechanism="Exposure",
             alpha=1.0, spread_without_default=True,
             initial_loss_mode="fixed", year=year, quarter=q,
-            runtime_ms=runtime_ms,
+            runtime_ms=runtime_ms, asset_initial=asset_initial,
         ))
-        bank_rows.extend(build_bank_rows(run_id, result, equity_initial, int(bank_id)))
+        bank_rows.extend(build_bank_rows(run_id, result, equity_initial, int(bank_id), asset_initial=asset_initial))
         round_rows.extend(build_round_rows(run_id, result))
 """
 
@@ -66,6 +67,7 @@ def build_run_row(
     initial_loss_mode,
     year,
     quarter,
+    asset_initial=None,
     random_state=None,
     runtime_ms=None,
     timestamp_utc=None,
@@ -81,6 +83,9 @@ def build_run_row(
     equity_initial : dict
         Mapping {bank_id: initial_equity} precomputed once per quarter from
         ``nodes.set_index("index")["Equity"].to_dict()``.
+    asset_initial : dict, optional
+        Mapping {bank_id: initial total assets}. When provided, asset losses
+        are reported alongside equity losses.
     n_banks, n_edges : int
         Network size (precomputed per quarter).
     initial_bank : int / str
@@ -100,10 +105,19 @@ def build_run_row(
     timestamp_utc : str, optional
         ISO-8601 timestamp.  Defaults to *now* when omitted.
     """
-    remaining = result["remaining_equity"]
+    remaining_equity = result["remaining_equity"]
+    remaining_assets = result.get("remaining_assets")
 
     # Per-bank loss (clamped at 0 — equity cannot go negative in accounting)
-    losses = {b: max(0.0, equity_initial[b] - remaining[b]) for b in equity_initial}
+    losses = {b: max(0.0, equity_initial[b] - remaining_equity[b]) for b in equity_initial}
+    asset_losses = None
+    system_asset_depletion = None
+    if asset_initial is not None and remaining_assets is not None:
+        asset_losses = {
+            b: max(0.0, asset_initial[b] - remaining_assets[b])
+            for b in asset_initial
+        }
+        system_asset_depletion = sum(asset_losses.values())
 
     num_impacted = sum(1 for v in losses.values() if v > 0)
     system_equity_depletion = sum(losses.values())
@@ -146,6 +160,7 @@ def build_run_row(
         # --- Loss metrics ---
         "failed_equity_loss": result["total_loss"],
         "system_equity_depletion": system_equity_depletion,
+        "system_asset_depletion": system_asset_depletion,
         "avg_loss_per_impacted": avg_loss_per_impacted,
         "max_bank_loss": max_bank_loss,
         "max_loss_bank_id": max_loss_bank_id,
@@ -161,7 +176,7 @@ def build_run_row(
 # Table 2 – bank_end_state_sparse
 # ---------------------------------------------------------------------------
 
-def build_bank_rows(run_id, result, equity_initial, initial_bank, eps=1e-10):
+def build_bank_rows(run_id, result, equity_initial, initial_bank, asset_initial=None, eps=1e-10):
     """Return a list of dicts, one per bank that was impacted / failed / initial.
 
     Omits banks whose equity was not touched by the simulation and that are not
@@ -175,18 +190,32 @@ def build_bank_rows(run_id, result, equity_initial, initial_bank, eps=1e-10):
         Return value of ``simulate_failure``.
     equity_initial : dict
         Precomputed {bank_id: initial_equity} for the quarter.
+    asset_initial : dict, optional
+        Precomputed {bank_id: initial total assets} for the quarter.
     initial_bank : int / str
     eps : float
         Small constant to avoid division by zero in loss_frac_of_initial.
     """
-    remaining = result["remaining_equity"]
+    remaining_equity = result["remaining_equity"]
+    remaining_assets = result.get("remaining_assets")
     failed_banks = result["failed_banks"]
     fail_round_map = result["fail_round"]
 
     rows = []
     for bank_id, eq_init in equity_initial.items():
-        eq_final = remaining[bank_id]
+        eq_final = remaining_equity[bank_id]
         eq_loss = max(0.0, eq_init - eq_final)
+        asset_fields = {}
+        if asset_initial is not None and remaining_assets is not None:
+            asset_init = asset_initial[bank_id]
+            asset_final = remaining_assets[bank_id]
+            asset_loss = max(0.0, asset_init - asset_final)
+            asset_fields = {
+                "asset_initial": asset_init,
+                "asset_final": asset_final,
+                "asset_delta": asset_final - asset_init,
+                "asset_loss": asset_loss,
+            }
         is_impacted = eq_loss > 0
         is_initial = bank_id == initial_bank
         is_failed = bank_id in failed_banks
@@ -194,7 +223,7 @@ def build_bank_rows(run_id, result, equity_initial, initial_bank, eps=1e-10):
         if not (is_impacted or is_initial or is_failed):
             continue
 
-        rows.append({
+        row = {
             "run_id": run_id,
             "bank_id": bank_id,
             "equity_initial": eq_init,
@@ -205,7 +234,9 @@ def build_bank_rows(run_id, result, equity_initial, initial_bank, eps=1e-10):
             "fail_round": fail_round_map.get(bank_id),
             "loss_frac_of_initial": eq_loss / max(eq_init, eps),
             "is_initial_bank": is_initial,
-        })
+        }
+        row.update(asset_fields)
+        rows.append(row)
 
     return rows
 

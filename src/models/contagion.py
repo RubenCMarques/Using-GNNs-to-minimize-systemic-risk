@@ -14,6 +14,15 @@ from src.data.simulation_store import (
 )
 
 
+def _get_asset_column(nodes):
+    """Return the balance-sheet asset column used in the node table."""
+    if "Total_assets" in nodes.columns:
+        return "Total_assets"
+    if "Assets" in nodes.columns:
+        return "Assets"
+    return None
+
+
 def simulate_failure(
     initial_bank,
     edges,
@@ -34,7 +43,7 @@ def simulate_failure(
     Args:
         initial_bank: ID of bank that is shocked first
         edges: DataFrame [Sourceid, Targetid, Weights]
-        nodes: DataFrame with 'index' and 'Equity' columns
+        nodes: DataFrame with 'index', 'Equity', and preferably 'Total_assets' columns
         mechanism: "Exposure" or "liquidity"
         alpha: Loss amplification factor
         spread_without_default: If True, contagion starts even when initial
@@ -48,14 +57,20 @@ def simulate_failure(
 
     Returns:
         dict: failed_banks, total_loss, num_failed, rounds, remaining_equity,
-              fail_round, initial_shock_fraction, initial_default.
+              remaining_assets, fail_round, initial_shock_fraction, initial_default.
               If track_rounds=True, also includes round_summaries (list of dicts,
               one per cascade round with keys: round, new_failures_count,
               cum_failures_count, round_equity_depletion, cum_equity_depletion,
               num_active_spreaders).
     """
-    equity = nodes.set_index('index')['Equity'].to_dict()
-    remaining = equity.copy()
+    equity = nodes.set_index('index')['Equity'].astype(float).to_dict()
+    remaining_equity = equity.copy()
+
+    asset_col = _get_asset_column(nodes)
+    remaining_assets = None
+    if asset_col is not None:
+        assets = nodes.set_index("index")[asset_col].astype(float).to_dict()
+        remaining_assets = assets.copy()
 
     if initial_loss_mode not in {"random", "fixed"}:
         raise ValueError("initial_loss_mode must be 'random' or 'fixed'")
@@ -71,10 +86,13 @@ def simulate_failure(
     if shock_fraction < 0:
         raise ValueError("Initial loss fraction must be >= 0")
 
-    # Apply initial equity shock to the selected bank.
-    remaining[initial_bank] -= shock_fraction * equity[initial_bank]
+    # Apply the initial loss to assets and absorb it through equity.
+    initial_loss = shock_fraction * equity[initial_bank]
+    remaining_equity[initial_bank] -= initial_loss
+    if remaining_assets is not None:
+        remaining_assets[initial_bank] -= initial_loss
 
-    initial_default = remaining[initial_bank] <= 0
+    initial_default = remaining_equity[initial_bank] <= 0
     failed = set([initial_bank]) if initial_default else set()
     newly_failed = {initial_bank} if spread_without_default or initial_default else set()
     rounds = 0
@@ -105,14 +123,16 @@ def simulate_failure(
                 if other in failed:
                     continue
 
-                # Direct loss scaled by crisis severity
+                # Loss given default on the exposure.
                 loss = alpha * row['Weights']
-                remaining[other] -= loss
+                remaining_equity[other] -= loss
+                if remaining_assets is not None:
+                    remaining_assets[other] -= loss
 
                 if track_rounds:
                     round_eq_depletion += loss
 
-                if remaining[other] <= 0:
+                if remaining_equity[other] <= 0:
                     next_failed.add(other)
 
         for b in next_failed:
@@ -139,7 +159,8 @@ def simulate_failure(
         "initial_default": initial_default,
         "failed_banks": failed,
         "fail_round": fail_round,
-        "remaining_equity": remaining,
+        "remaining_equity": remaining_equity,
+        "remaining_assets": remaining_assets,
         "total_loss": total_loss,
         "num_failed": len(failed),
         "rounds": rounds,
@@ -161,7 +182,7 @@ def build_systemic_importance_summary(
 
     Args:
         run_df: DataFrame generated from one run per initial bank.
-        nodes: DataFrame with at least 'index' and optionally 'Assets'.
+        nodes: DataFrame with at least 'index' and optionally 'Total_assets'.
 
     Returns:
         DataFrame with one row per initial bank and ranking metrics.
@@ -178,9 +199,10 @@ def build_systemic_importance_summary(
     summary["causes_cascade"] = (summary["secondary_defaults"] > 0).astype(int)
     summary["systemic_risk_label"] = summary["cascade_size"]
 
-    if "Assets" in nodes.columns:
-        bank_assets = nodes.set_index("index")["Assets"].to_dict()
-        total_assets = float(nodes["Assets"].sum())
+    asset_col = _get_asset_column(nodes)
+    if asset_col is not None:
+        bank_assets = nodes.set_index("index")[asset_col].to_dict()
+        total_assets = float(nodes[asset_col].sum())
         summary["initial_bank_assets"] = summary["bank_id"].map(bank_assets).fillna(0.0)
         summary["affected_assets"] = summary["impacted_share"] * total_assets
         summary["affected_assets_share"] = (
@@ -217,6 +239,7 @@ def build_systemic_importance_summary(
         "impacted_share",
         "failed_equity_loss",
         "system_equity_depletion",
+        "system_asset_depletion",
         "avg_loss_per_impacted",
         "max_bank_loss",
         "max_loss_bank_id",
@@ -273,6 +296,13 @@ def run_default_contagion_analysis(
         bank_id: float(value)
         for bank_id, value in nodes.set_index("index")["Equity"].items()
     }
+    asset_col = _get_asset_column(nodes)
+    asset_initial = None
+    if asset_col is not None:
+        asset_initial = {
+            bank_id: float(value)
+            for bank_id, value in nodes.set_index("index")[asset_col].items()
+        }
     n_banks = len(nodes)
     n_edges = len(edges)
 
@@ -301,6 +331,7 @@ def run_default_contagion_analysis(
                 run_id=run_id,
                 result=result,
                 equity_initial=equity_initial,
+                asset_initial=asset_initial,
                 n_banks=n_banks,
                 n_edges=n_edges,
                 initial_bank=bank_id,
@@ -318,6 +349,7 @@ def run_default_contagion_analysis(
                 run_id=run_id,
                 result=result,
                 equity_initial=equity_initial,
+                asset_initial=asset_initial,
                 initial_bank=bank_id,
             )
         )
@@ -397,5 +429,3 @@ def run_default_contagion_analysis_for_quarter(
         track_rounds=track_rounds,
         output_dir=output_dir,
     )
-
-
