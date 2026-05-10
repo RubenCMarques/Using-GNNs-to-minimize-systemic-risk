@@ -23,6 +23,15 @@ from torch_geometric.utils import negative_sampling
 from src.data.data_loader import load_data
 
 
+TARGET_LIKE_COLUMNS = {
+    "rank_next_quarter",
+    "srisk_ratio",
+    "srisk_value",
+    "systemic_risk_label",
+    "log_systemic_risk_label",
+}
+
+
 class GNNConfig:
     def __init__(
         self,
@@ -93,11 +102,18 @@ def prepare_graph_data(edges, nodes, feature_cols=None):
     id_to_idx = {bank_id: idx for idx, bank_id in enumerate(bank_ids)}
 
     if feature_cols is None:
-        exclude = {"index", "rank_next_quarter", "srisk_ratio", "srisk_value"}
         feature_cols = [
             col
             for col in nodes.columns
-            if col not in exclude and nodes[col].dtype in ["float64", "int64", "float32"]
+            if col not in TARGET_LIKE_COLUMNS
+            and col != "index"
+            and nodes[col].dtype in ["float64", "int64", "float32"]
+        ]
+    else:
+        feature_cols = [
+            col
+            for col in feature_cols
+            if col in nodes.columns and col not in TARGET_LIKE_COLUMNS and col != "index"
         ]
 
     x = nodes[feature_cols].values.astype(np.float32)

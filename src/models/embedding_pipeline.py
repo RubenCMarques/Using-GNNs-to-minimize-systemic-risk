@@ -16,7 +16,13 @@ from src.data.data_loader import load_data
 from src.models.embeddings import GNNConfig, Node2VecConfig, extract_embeddings_for_period
 
 
-TARGET_COLUMNS = {"rank_next_quarter", "srisk_ratio", "srisk_value", "systemic_risk_label"}
+TARGET_COLUMNS = {
+    "rank_next_quarter",
+    "srisk_ratio",
+    "srisk_value",
+    "systemic_risk_label",
+    "log_systemic_risk_label",
+}
 
 
 def _iter_quarters(years=None, quarters=(1, 2, 3, 4)):
