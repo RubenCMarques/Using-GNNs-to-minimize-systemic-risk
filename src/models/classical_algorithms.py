@@ -128,7 +128,19 @@ def eigenvector_centrality(edges, nodes, max_iter=100000):
     try:
         centrality = nx.eigenvector_centrality(G, max_iter=max_iter, weight='Weights')
     except nx.PowerIterationFailedConvergence:
-        centrality = nx.eigenvector_centrality_numpy(G, weight='Weights')
+        # Graph is disconnected — compute per weakly connected component.
+        # eigenvector_centrality_numpy raises AmbiguousSolution on disconnected graphs.
+        centrality = {}
+        for component in nx.weakly_connected_components(G):
+            sub = G.subgraph(component)
+            if len(component) == 1:
+                centrality[next(iter(component))] = 0.0
+            else:
+                try:
+                    centrality.update(nx.eigenvector_centrality_numpy(sub, weight='Weights'))
+                except (nx.AmbiguousSolution, Exception):
+                    for node in component:
+                        centrality[node] = 0.0
 
     return pd.DataFrame([
         {'bank_id': bank, 'eigenvector_centrality': centrality.get(bank, 0.0)}
