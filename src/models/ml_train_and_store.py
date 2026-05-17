@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 CLASSICAL_FEATURE_CANDIDATES = [
@@ -96,13 +96,8 @@ def time_split(
     return train_df.reset_index(drop=True), val_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
-def make_pipeline(regressor, scale_features=False):
-    steps = [("imputer", SimpleImputer(strategy="median"))]
-    if scale_features:
-        steps.append(("scaler", StandardScaler()))
-    # No target transform: the target is already log_systemic_risk_label.
-    # Applying log1p again would be a redundant double-log.
-    steps.append(("model", regressor))
+def make_pipeline(regressor):
+    steps = [("imputer", SimpleImputer(strategy="median")), ("model", regressor)]
     return Pipeline(steps)
 
 
@@ -120,6 +115,8 @@ class ModelTrainer:
         "train_mae", "validation_mae", "test_mae",
         "train_rmse", "validation_rmse", "test_rmse",
         "train_r2", "validation_r2", "test_r2",
+        "train_top1_mae", "validation_top1_mae",
+        "train_top1_rmse", "validation_top1_rmse",
     ]))
 
     def __post_init__(self):
@@ -129,14 +126,23 @@ class ModelTrainer:
             val_end=self.val_end,
             test_end=self.test_end,
         )
+        self._top1_threshold = self.df[self.target_col].quantile(0.99)
 
     def _score(self, model, X, y):
+        y_arr = np.asarray(y)
         pred = model.predict(X)
-        return {
-            "mae": mean_absolute_error(y, pred),
-            "rmse": mean_squared_error(y, pred) ** 0.5,
-            "r2": r2_score(y, pred),
+        scores = {
+            "mae": mean_absolute_error(y_arr, pred),
+            "rmse": mean_squared_error(y_arr, pred) ** 0.5,
+            "r2": r2_score(y_arr, pred),
         }
+        mask = y_arr >= self._top1_threshold
+        if mask.sum() > 0:
+            scores["top1_mae"]  = mean_absolute_error(y_arr[mask], pred[mask])
+            scores["top1_rmse"] = mean_squared_error(y_arr[mask], pred[mask]) ** 0.5
+        else:
+            scores["top1_mae"] = scores["top1_rmse"] = float("nan")
+        return scores
 
     def train(self, model, name):
         import copy
@@ -150,9 +156,12 @@ class ModelTrainer:
         row = {"model": name}
         for split_name, split_df in [("train", self.train_df), ("validation", self.val_df), ("test", self.test_df)]:
             metrics = self._score(model, split_df[self.feature_cols], split_df[self.target_col])
-            row[f"{split_name}_mae"] = metrics["mae"]
+            row[f"{split_name}_mae"]  = metrics["mae"]
             row[f"{split_name}_rmse"] = metrics["rmse"]
-            row[f"{split_name}_r2"] = metrics["r2"]
+            row[f"{split_name}_r2"]   = metrics["r2"]
+            if split_name != "test":
+                row[f"{split_name}_top1_mae"]  = metrics["top1_mae"]
+                row[f"{split_name}_top1_rmse"] = metrics["top1_rmse"]
 
         self.results_df = (
             pd.concat([self.results_df, pd.DataFrame([row])], ignore_index=True)
@@ -169,14 +178,7 @@ class ModelTrainer:
     def leaderboard(self):
         return self.results_df.copy()
 
-    def best_name(self):
-        if self.results_df.empty:
-            raise ValueError("No models have been trained.")
-        return self.results_df.iloc[0]["model"]
-
-    def test_predictions(self, model_name=None):
-        if model_name is None:
-            model_name = self.best_name()
+    def test_predictions(self, model_name):
         model = self.models[model_name]
         pred_df = self.test_df[["bank_id", "year", "quarter", "period", self.target_col]].copy()
         pred_df["prediction"] = model.predict(self.test_df[self.feature_cols])
