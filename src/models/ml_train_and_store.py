@@ -5,11 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
+
+
+def load_model(path):
+    """Load a previously saved model pipeline from disk."""
+    return joblib.load(path)
 
 
 CLASSICAL_FEATURE_CANDIDATES = [
@@ -110,6 +116,7 @@ class ModelTrainer:
     val_end: tuple[int, int] = (2022, 4)
     test_end: tuple[int, int] = (2023, 3)
     models: dict[str, object] = field(default_factory=dict)
+    best_params: dict[str, dict] = field(default_factory=dict)
     results_df: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=[
         "model",
         "train_mae", "validation_mae", "test_mae",
@@ -177,6 +184,15 @@ class ModelTrainer:
 
     def leaderboard(self):
         return self.results_df.copy()
+
+    def save_model(self, name, save_dir):
+        """Save a fitted model to disk. Call explicitly when you want to persist it."""
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        path = save_dir / f"{name.replace(' ', '_')}.joblib"
+        joblib.dump(self.models[name], path)
+        print(f"Saved '{name}' → {path}")
+        return path
 
     def test_predictions(self, model_name):
         model = self.models[model_name]
