@@ -43,8 +43,6 @@ venv
 .LSOverride
 
 # Data files 
-*.csv
-*.xlsx
 *.json
 /edges
 /nodes
