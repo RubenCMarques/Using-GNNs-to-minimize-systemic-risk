@@ -82,6 +82,37 @@ def load_gnn_dataset(
     return df, feature_cols
 
 
+def top1_bank_cohort(train_df, target_col, id_col="bank_id", q=0.99):
+    """Top-(1-q) banks by mean target on the supplied rows.
+
+    Returns the set of bank ids whose mean ``target_col`` on ``train_df`` is at or
+    above the ``q``-quantile of bank-level means. Pass training rows only to avoid
+    leaking val/test labels into the cohort definition.
+    """
+    if id_col not in train_df.columns:
+        raise KeyError(f"'{id_col}' missing from train_df; cannot build bank cohort.")
+    per_bank = train_df.groupby(id_col)[target_col].mean()
+    if per_bank.empty:
+        return set()
+    threshold = per_bank.quantile(q)
+    return set(per_bank[per_bank >= threshold].index)
+
+
+def top1_metrics(df, y_pred, cohort, target_col, id_col="bank_id"):
+    """MAE and RMSE on rows whose ``id_col`` is in ``cohort``."""
+    if id_col not in df.columns or not cohort:
+        return {"mae": float("nan"), "rmse": float("nan")}
+    mask = df[id_col].isin(cohort).to_numpy()
+    if not mask.any():
+        return {"mae": float("nan"), "rmse": float("nan")}
+    y_true = np.asarray(df.loc[mask, target_col])
+    y_pred_arr = np.asarray(y_pred)[mask]
+    return {
+        "mae": mean_absolute_error(y_true, y_pred_arr),
+        "rmse": mean_squared_error(y_true, y_pred_arr) ** 0.5,
+    }
+
+
 def time_split(
     df,
     train_end=(2021, 4),
@@ -133,22 +164,19 @@ class ModelTrainer:
             val_end=self.val_end,
             test_end=self.test_end,
         )
-        self._top1_threshold = self.df[self.target_col].quantile(0.99)
+        self._top1_bank_ids = top1_bank_cohort(self.train_df, self.target_col)
 
-    def _score(self, model, X, y):
-        y_arr = np.asarray(y)
-        pred = model.predict(X)
+    def _score(self, model, split_df):
+        y_arr = np.asarray(split_df[self.target_col])
+        pred = model.predict(split_df[self.feature_cols])
         scores = {
             "mae": mean_absolute_error(y_arr, pred),
             "rmse": mean_squared_error(y_arr, pred) ** 0.5,
             "r2": r2_score(y_arr, pred),
         }
-        mask = y_arr >= self._top1_threshold
-        if mask.sum() > 0:
-            scores["top1_mae"]  = mean_absolute_error(y_arr[mask], pred[mask])
-            scores["top1_rmse"] = mean_squared_error(y_arr[mask], pred[mask]) ** 0.5
-        else:
-            scores["top1_mae"] = scores["top1_rmse"] = float("nan")
+        top1 = top1_metrics(split_df, pred, self._top1_bank_ids, self.target_col)
+        scores["top1_mae"] = top1["mae"]
+        scores["top1_rmse"] = top1["rmse"]
         return scores
 
     def train(self, model, name):
@@ -162,7 +190,7 @@ class ModelTrainer:
 
         row = {"model": name}
         for split_name, split_df in [("train", self.train_df), ("validation", self.val_df), ("test", self.test_df)]:
-            metrics = self._score(model, split_df[self.feature_cols], split_df[self.target_col])
+            metrics = self._score(model, split_df)
             row[f"{split_name}_mae"]  = metrics["mae"]
             row[f"{split_name}_rmse"] = metrics["rmse"]
             row[f"{split_name}_r2"]   = metrics["r2"]
@@ -182,8 +210,14 @@ class ModelTrainer:
             self.train(model=model, name=name)
         return self.leaderboard()
 
-    def leaderboard(self):
-        return self.results_df.copy()
+    def leaderboard(self, round_decimals: int = 3):
+        df = self.results_df.copy()
+        if round_decimals is not None:
+            metric_cols = [c for c in df.columns if any(k in c for k in ("mae", "rmse", "r2"))]
+            # results_df columns are object dtype (inherited from the empty template),
+            # so .round() is a no-op unless we cast to float first.
+            df[metric_cols] = df[metric_cols].astype(float).round(round_decimals)
+        return df
 
     def save_model(self, name, save_dir):
         """Save a fitted model to disk. Call explicitly when you want to persist it."""
