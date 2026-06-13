@@ -1,0 +1,37 @@
+dataset,experiment,model,train_rmse,validation_rmse,train_mae,validation_mae,train_top1_rmse,validation_top1_rmse,train_top1_mae,validation_top1_mae,test_mae,test_rmse,test_top1_mae,test_top1_rmse,approach,dataset_group,p,p_num
+dataset1_baseline,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.06,0.083,0.01,0.015,0.42,0.592,0.313,0.48,0.012,0.07,0.366,0.451,Centrality,dataset1,p0,0
+dataset1_p5,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.062,0.083,0.01,0.015,0.426,0.578,0.317,0.475,0.012,0.069,0.351,0.431,Centrality,dataset1,p5,1
+dataset1_p10,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.06,0.084,0.01,0.015,0.41,0.563,0.299,0.462,0.013,0.07,0.359,0.439,Centrality,dataset1,p10,2
+dataset1_p15,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.061,0.086,0.01,0.016,0.406,0.569,0.294,0.471,0.013,0.071,0.36,0.445,Centrality,dataset1,p15,3
+dataset1_p20,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.066,0.084,0.011,0.016,0.433,0.536,0.319,0.447,0.013,0.07,0.349,0.426,Centrality,dataset1,p20,4
+dataset1_p25,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.065,0.084,0.011,0.017,0.428,0.516,0.307,0.421,0.013,0.07,0.34,0.413,Centrality,dataset1,p25,5
+dataset1_p30,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.065,0.083,0.012,0.017,0.413,0.495,0.299,0.405,0.014,0.071,0.313,0.383,Centrality,dataset1,p30,6
+dataset1_p35,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.068,0.083,0.012,0.017,0.431,0.483,0.309,0.396,0.014,0.073,0.326,0.398,Centrality,dataset1,p35,7
+dataset1_p40,dataset1_temporal_train_04a_specs,Gradient Boosting (tuned),0.07,0.082,0.013,0.017,0.439,0.468,0.308,0.378,0.015,0.074,0.308,0.379,Centrality,dataset1,p40,8
+dataset1_baseline,dataset1_temporal_train_05a_specs,MLP (tuned),0.101,0.15,0.016,0.024,0.834,1.246,0.654,1.059,0.025,0.169,1.31,1.521,Embeddings,dataset1,p0,0
+dataset1_p5,dataset1_temporal_train_05a_specs,MLP (tuned),0.094,0.161,0.028,0.039,0.703,1.327,0.562,1.166,0.036,0.169,1.276,1.485,Embeddings,dataset1,p5,1
+dataset1_p10,dataset1_temporal_train_05a_specs,MLP (tuned),0.103,0.158,0.022,0.03,0.761,1.304,0.579,1.149,0.029,0.165,1.235,1.464,Embeddings,dataset1,p10,2
+dataset1_p15,dataset1_temporal_train_05a_specs,MLP (tuned),0.112,0.134,0.038,0.041,0.754,0.997,0.558,0.786,0.042,0.151,0.903,1.211,Embeddings,dataset1,p15,3
+dataset1_p20,dataset1_temporal_train_05a_specs,MLP (tuned),0.121,0.173,0.037,0.047,0.954,1.431,0.751,1.221,0.046,0.171,1.21,1.458,Embeddings,dataset1,p20,4
+dataset1_p25,dataset1_temporal_train_05a_specs,MLP (tuned),0.109,0.213,0.023,0.039,0.773,1.814,0.613,1.6,0.034,0.196,1.518,1.727,Embeddings,dataset1,p25,5
+dataset1_p30,dataset1_temporal_train_05a_specs,MLP (tuned),0.116,0.185,0.028,0.039,0.86,1.512,0.694,1.364,0.039,0.202,1.576,1.784,Embeddings,dataset1,p30,6
+dataset1_p35,dataset1_temporal_train_05a_specs,MLP (tuned),0.12,0.169,0.03,0.037,0.784,1.302,0.605,1.035,0.037,0.181,1.201,1.506,Embeddings,dataset1,p35,7
+dataset1_p40,dataset1_temporal_train_05a_specs,MLP (tuned),0.122,0.169,0.029,0.038,0.809,1.234,0.632,1.098,0.038,0.19,1.301,1.577,Embeddings,dataset1,p40,8
+dataset2_baseline,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.062,0.177,0.017,0.067,,,,,0.054,0.151,,,Centrality,dataset2,p0,0
+dataset2_p5,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.062,0.175,0.017,0.068,,,,,0.059,0.165,,,Centrality,dataset2,p5,1
+dataset2_p10,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.062,0.216,0.018,0.08,,,,,0.064,0.181,,,Centrality,dataset2,p10,2
+dataset2_p15,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.063,0.216,0.019,0.08,,,,,0.068,0.191,,,Centrality,dataset2,p15,3
+dataset2_p20,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.07,0.24,0.021,0.09,,,,,0.069,0.18,,,Centrality,dataset2,p20,4
+dataset2_p25,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.069,0.201,0.022,0.08,,,,,0.096,0.25,,,Centrality,dataset2,p25,5
+dataset2_p30,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.066,0.258,0.022,0.092,,,,,0.078,0.217,,,Centrality,dataset2,p30,6
+dataset2_p35,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.069,0.285,0.025,0.093,,,,,0.08,0.23,,,Centrality,dataset2,p35,7
+dataset2_p40,dataset2_random_train_04a_specs,Gradient Boosting (tuned),0.088,0.223,0.029,0.077,,,,,0.086,0.243,,,Centrality,dataset2,p40,8
+dataset2_baseline,dataset2_random_train_05a_specs,MLP (tuned),0.181,0.208,0.066,0.075,,,,,0.058,0.157,,,Embeddings,dataset2,p0,0
+dataset2_p5,dataset2_random_train_05a_specs,MLP (tuned),0.219,0.473,0.131,0.169,,,,,0.13,0.214,,,Embeddings,dataset2,p5,1
+dataset2_p10,dataset2_random_train_05a_specs,MLP (tuned),0.243,0.369,0.106,0.121,,,,,0.102,0.21,,,Embeddings,dataset2,p10,2
+dataset2_p15,dataset2_random_train_05a_specs,MLP (tuned),0.214,0.255,0.089,0.107,,,,,0.082,0.175,,,Embeddings,dataset2,p15,3
+dataset2_p20,dataset2_random_train_05a_specs,MLP (tuned),0.241,0.263,0.107,0.113,,,,,0.101,0.22,,,Embeddings,dataset2,p20,4
+dataset2_p25,dataset2_random_train_05a_specs,MLP (tuned),0.185,0.189,0.097,0.11,,,,,0.108,0.197,,,Embeddings,dataset2,p25,5
+dataset2_p30,dataset2_random_train_05a_specs,MLP (tuned),0.293,0.318,0.159,0.161,,,,,0.168,0.306,,,Embeddings,dataset2,p30,6
+dataset2_p35,dataset2_random_train_05a_specs,MLP (tuned),0.17,0.246,0.072,0.097,,,,,0.081,0.213,,,Embeddings,dataset2,p35,7
+dataset2_p40,dataset2_random_train_05a_specs,MLP (tuned),0.267,0.489,0.134,0.171,,,,,0.145,0.328,,,Embeddings,dataset2,p40,8

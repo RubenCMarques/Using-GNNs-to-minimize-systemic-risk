@@ -90,3 +90,11 @@ htmlcov/
 *.bak
 *.swp
 *~
+
+# Embedded external repo (kept local, not tracked)
+financial-contagion-in-R/
+
+# Oversized generated prediction CSVs (too big for GitHub's 100MB limit).
+# Split into predictions_parts/ via notebooks/utils/split_large_predictions.ipynb.
+src/data/predictions/04b_saved_04a/predictions.csv
+src/data/predictions/05d_saved_05a/predictions.csv

@@ -17,7 +17,7 @@ def load_data(year, quarter, data_path=None):
     Args:
         year (int): Year (2016-2023)
         quarter (int): Quarter (1-4)
-        data_path (str): Path to datasets folder. Default: root/src/datasets
+        data_path (str): Path to a dataset folder. Default: root/src/datasets/dataset_1
 
     Returns:
         tuple: (edges, nodes)
@@ -27,7 +27,7 @@ def load_data(year, quarter, data_path=None):
     """
     if data_path is None:
         project_root = Path(__file__).parent.parent.parent
-        data_path = project_root / "src" / "datasets"
+        data_path = project_root / "src" / "datasets" / "dataset_1"
 
     edge_file = data_path / "edges" / f"edge_{year}Q{quarter}.csv"
     node_file = data_path / "nodes" / f"{year}Q{quarter}.csv"

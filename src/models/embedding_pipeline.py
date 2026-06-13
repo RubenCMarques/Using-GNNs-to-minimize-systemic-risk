@@ -35,7 +35,7 @@ def _iter_quarters(years=None, quarters=(1, 2, 3, 4)):
 
 def _load_targets(year, quarter, target_col="systemic_risk_label", target_dir=None):
     if target_dir is None:
-        target_dir = Path(__file__).resolve().parent.parent / "datasets" / "targets"
+        target_dir = Path(__file__).resolve().parent.parent / "datasets" / "dataset_1" / "targets"
 
     target_path = Path(target_dir) / f"target_{year}Q{quarter}.csv"
     if not target_path.exists():

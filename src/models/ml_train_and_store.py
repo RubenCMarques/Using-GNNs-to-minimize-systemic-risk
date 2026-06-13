@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 
@@ -37,9 +38,9 @@ def load_classical_dataset(
 ):
     project_root = Path(project_root)
     if feature_dir is None:
-        feature_dir = project_root / "src" / "data" / "classical_features"
+        feature_dir = project_root / "src" / "data" / "classical_features" / "dataset_1"
     if target_dir is None:
-        target_dir = project_root / "src" / "datasets" / "targets"
+        target_dir = project_root / "src" / "datasets" / "dataset_1" / "targets"
 
     frames = []
     for year in range(2016, 2024):
@@ -73,7 +74,13 @@ def load_gnn_dataset(
 ):
     project_root = Path(project_root)
     if dataset_path is None:
-        dataset_path = project_root / "src" / "data" / "embeddings" / filename
+        # Route to the segregated embeddings layout based on the filename:
+        #   node2vec_* -> network_based, otherwise feature_based
+        #   *dataset2* -> dataset_2,    otherwise dataset_1
+        name = str(filename)
+        ds = "dataset_2" if "dataset2" in name else "dataset_1"
+        sub = "network_based" if name.startswith("node2vec") else "feature_based"
+        dataset_path = project_root / "src" / "data" / "embeddings" / ds / sub / filename
 
     df = pd.read_parquet(dataset_path)
     feature_cols = [c for c in df.columns if c.startswith("emb_")]
@@ -138,14 +145,56 @@ def make_pipeline(regressor):
     return Pipeline(steps)
 
 
+def _make_stratify_bins(df, target_col, max_bins=10):
+    """Quantile bins of the target for stratified splitting (or None if infeasible)."""
+    y = df[target_col]
+    max_bins = min(max_bins, y.nunique())
+    for n_bins in range(max_bins, 1, -1):
+        try:
+            bins = pd.qcut(y, q=n_bins, labels=False, duplicates="drop")
+        except ValueError:
+            continue
+        counts = pd.Series(bins).value_counts()
+        if len(counts) > 1 and counts.min() >= 2:
+            return bins
+    return None
+
+
+def random_split(df, target_col, test_size=0.15, n_bins=10, random_state=42):
+    """Stratified random train/val/test split for static (non-temporal) datasets.
+
+    Mirrors the split used in the combined threshold notebooks: a ``test_size``
+    hold-out, then an equal-sized validation slice from the remainder, both
+    stratified on quantile bins of the target.
+    """
+    strat = _make_stratify_bins(df, target_col, n_bins)
+    train_val_df, test_df = train_test_split(
+        df, test_size=test_size, random_state=random_state, shuffle=True, stratify=strat,
+    )
+    val_strat = _make_stratify_bins(train_val_df, target_col, n_bins)
+    train_df, val_df = train_test_split(
+        train_val_df, test_size=test_size / (1 - test_size),
+        random_state=random_state, shuffle=True, stratify=val_strat,
+    )
+    return (
+        train_df.reset_index(drop=True),
+        val_df.reset_index(drop=True),
+        test_df.reset_index(drop=True),
+    )
+
+
 @dataclass
 class ModelTrainer:
     df: pd.DataFrame
     feature_cols: list[str]
     target_col: str = "systemic_risk_label"
+    split: str = "temporal"  # "temporal" (Dataset 1) or "random" (static datasets)
     train_end: tuple[int, int] = (2021, 4)
     val_end: tuple[int, int] = (2022, 4)
     test_end: tuple[int, int] = (2023, 3)
+    test_size: float = 0.15
+    stratify_bins: int = 10
+    random_state: int = 42
     models: dict[str, object] = field(default_factory=dict)
     best_params: dict[str, dict] = field(default_factory=dict)
     results_df: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=[
@@ -158,13 +207,25 @@ class ModelTrainer:
     ]))
 
     def __post_init__(self):
-        self.train_df, self.val_df, self.test_df = time_split(
-            self.df,
-            train_end=self.train_end,
-            val_end=self.val_end,
-            test_end=self.test_end,
-        )
-        self._top1_bank_ids = top1_bank_cohort(self.train_df, self.target_col)
+        if self.split == "random":
+            self.train_df, self.val_df, self.test_df = random_split(
+                self.df,
+                self.target_col,
+                test_size=self.test_size,
+                n_bins=self.stratify_bins,
+                random_state=self.random_state,
+            )
+            # Static datasets have one row per bank, so a train-defined top-1%
+            # cohort does not overlap the val/test rows — skip top-1% scoring.
+            self._top1_bank_ids = set()
+        else:
+            self.train_df, self.val_df, self.test_df = time_split(
+                self.df,
+                train_end=self.train_end,
+                val_end=self.val_end,
+                test_end=self.test_end,
+            )
+            self._top1_bank_ids = top1_bank_cohort(self.train_df, self.target_col)
 
     def _score(self, model, split_df):
         y_arr = np.asarray(split_df[self.target_col])
