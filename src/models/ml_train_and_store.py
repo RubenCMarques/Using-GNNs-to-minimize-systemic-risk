@@ -76,9 +76,9 @@ def load_gnn_dataset(
     if dataset_path is None:
         # Route to the segregated embeddings layout based on the filename:
         #   node2vec_* -> network_based, otherwise feature_based
-        #   *dataset2* -> dataset_2,    otherwise dataset_1
+        #   *dataset3* -> dataset_3, *dataset2* -> dataset_2, otherwise dataset_1
         name = str(filename)
-        ds = "dataset_2" if "dataset2" in name else "dataset_1"
+        ds = "dataset_3" if "dataset3" in name else ("dataset_2" if "dataset2" in name else "dataset_1")
         sub = "network_based" if name.startswith("node2vec") else "feature_based"
         dataset_path = project_root / "src" / "data" / "embeddings" / ds / sub / filename
 

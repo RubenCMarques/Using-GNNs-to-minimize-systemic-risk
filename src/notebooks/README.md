@@ -52,11 +52,17 @@ objective. (v3 / no-log and the old base prototype were removed — each dataset
 > stored results were kept intact). They are not split per-dataset because that would
 > require re-running them.
 
-## 06–08 Comparisons (cross-dataset / cross-approach)
-- `06_analysis/06_Embedding_Model_Comparison.ipynb`
-- `06_analysis/06_target_dataset_analysis.ipynb`
-- `07_comparison/07_p_threshold_comparison_centrality_vs_embeddings.ipynb`
-- `08_ensemble/08_ensemble_centrality_embeddings.ipynb`
+## 06 Ensemble / stacking (per dataset)
+- `06_ensemble/dataset_1/06_ensemble.ipynb` — d1 (from combined 04b/05d predictions)
+- `06_ensemble/dataset_2/06_ensemble.ipynb` — d2 (from per-dataset threshold predictions)
+- `06_ensemble/dataset_3/06_ensemble.ipynb` — d3 (from per-dataset threshold predictions)
+
+## 07 Analysis
+- `07_analysis/07_Embedding_Model_Comparison.ipynb`
+- `07_analysis/07_target_dataset_analysis.ipynb`
+
+## 08 Comparison
+- `08_comparison/08_p_threshold_comparison_centrality_vs_embeddings.ipynb`
 
 ## Data / artifact layout (under `src/`)
 ```
