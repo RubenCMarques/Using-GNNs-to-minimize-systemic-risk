@@ -6,7 +6,7 @@ automatically, so paths resolve regardless of the folder depth.
 Datasets:
 - **dataset_1** — AI4Risk interbank network, temporal (2016Q1–2023Q4, 32 quarters)
 - **dataset_2** — synthetic European network, static (1 444 banks)
-- **dataset_3** — intercounty-migration network, static (new)
+- **dataset_3** — ER synthetic network (avg degree 0.8), static; default-cascade p-threshold targets
 
 Two embedding approaches (kept in separate folders under `src/data/embeddings/`):
 - **feature_based** — GraphSAGE (uses node financial features + structure)
@@ -18,11 +18,12 @@ objective. (v3 / no-log and the old base prototype were removed — each dataset
 ## 01 Exploration / preprocessing
 - `01_exploration/dataset_1/01_preprocessing.ipynb`
 - `01_exploration/dataset_2/01_preprocessing.ipynb`
-- `01_exploration/dataset_3/01_preprocessing.ipynb`
+- `01_exploration/dataset_3/01_preprocessing.ipynb` — ER centrality features (no DebtRank: no equity)
 
 ## 02 Contagion simulations
 - `02_contagion/dataset_1/02_contagion.ipynb`
 - `02_contagion/dataset_2/02_contagion.ipynb`
+- `02_contagion/dataset_3/02_contagion.ipynb` — ER default-cascade p-threshold sweep
 
 ## 03 Embeddings
 - `03_embeddings/dataset_1/03_embeddings_v1.ipynb` — GraphSAGE v1 + Node2Vec v1 (32/64/128)
@@ -31,6 +32,8 @@ objective. (v3 / no-log and the old base prototype were removed — each dataset
 - `03_embeddings/dataset_1/03_feature_embeddings_p_thresholds.ipynb` — best feature embedding × p-threshold targets
 - `03_embeddings/dataset_2/03_embeddings_v1.ipynb`
 - `03_embeddings/dataset_2/03_embeddings_v2.ipynb`
+- `03_embeddings/dataset_3/03_embeddings_v1.ipynb` — Node2Vec v1 (unbiased, q=1); no GraphSAGE (structure-only network)
+- `03_embeddings/dataset_3/03_embeddings_v2.ipynb` — Node2Vec v2 (structural, q=2)
 
 ## 04 Models — centrality / classical
 - `04_classical_ml/dataset_1/04_centrality_selection_p0.ipynb` — model selection at p=0 (temporal split)
@@ -59,7 +62,7 @@ objective. (v3 / no-log and the old base prototype were removed — each dataset
 ```
 datasets/dataset_{1,2,3}/{edges,nodes,targets,sim_*}   # raw data + contagion sims
 data/embeddings/dataset_{1,2}/{feature_based,network_based}/
-data/classical_features/dataset_{1,2}/
+data/classical_features/dataset_{1,2,3}/
 data/predictions/                                       # model outputs + comparison figures
 models/dataset_1/{04_a,05_a,05_b}/                      # saved best models
 ```
