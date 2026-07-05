@@ -9,7 +9,7 @@ Code for systemic risk prediction on interbank networks. It simulates default co
 Clone this repository (Python 3.12):
 
 ```bash
-git clone https://github.com/RubenCMarques/Thesis.git
+git clone https://github.com/RubenCMarques/Using-GNNs-to-minimize-systemic-risk.git
 ```
 
 Install [PyTorch](https://pytorch.org/) and [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/).
