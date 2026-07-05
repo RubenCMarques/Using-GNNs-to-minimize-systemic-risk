@@ -28,7 +28,7 @@ Three interbank networks, under `src/datasets/`:
 
 - **dataset_1** — AI4Risk interbank network, temporal (2016 Q1 – 2023 Q4, 32 quarters).
 - **dataset_2** — synthetic European network, static (1 444 banks).
-- **dataset_3** — Erdős–Rényi synthetic network (avg degree 0.8), static.
+- **dataset_3** — synthetic network, static.
 
 Each network stores `edges`, `nodes`, and `targets`. The target `systemic_risk_label` is the cascade size from the default-contagion simulation, with `log_systemic_risk_label = log1p(...)`. A default-threshold sweep (`p0`, `p5` … `p40`) shrinks the failure buffer to produce a target per threshold.
 
