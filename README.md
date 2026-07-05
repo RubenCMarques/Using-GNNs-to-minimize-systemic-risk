@@ -46,7 +46,7 @@ Inside the `src/notebooks/` folder, organized **by stage, then by dataset** (eac
 - **06_hybrid_approach** — blends the centrality and embedding predictors (average and validation-fitted weighted average).
 - **07_analysis** — embedding-model comparison, Node2Vec vs GraphSAGE, target EDA.
 - **08_comparison** — centrality vs embeddings across the `p`-thresholds.
-- **00_notes** — network summary tables/figures and R-replica contagion references.
+- **00_notes** — network summary tables/figures.
 
 ### Models
 
